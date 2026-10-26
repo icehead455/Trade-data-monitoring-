@@ -210,6 +210,7 @@ footer code, .sub code { font-family: var(--font-data); font-size: 0.95em; color
   <div class="wrap">
     <div class="cells" id="cells" role="group" aria-label="Product (HS code)"></div>
     <div class="seg" id="windows" role="group" aria-label="Time window"></div>
+    <div class="seg" id="currency" role="group" aria-label="Currency"></div>
   </div>
 </div>
 
@@ -250,7 +251,7 @@ footer code, .sub code { font-family: var(--font-data); font-size: 0.95em; color
         <details><summary>Show as table</summary><div class="tbl-wrap" id="dest-table"></div></details>
       </div>
     </div>
-    <details class="panel"><summary>Year by year, every destination (tonnes, USD, USD/kg)</summary><div class="tbl-wrap" id="dest-years"></div></details>
+    <details class="panel"><summary>Year by year, every destination (tonnes, value, value per kg)</summary><div class="tbl-wrap" id="dest-years"></div></details>
   </section>
 
   <section aria-labelledby="h-mirror">
@@ -266,7 +267,7 @@ footer code, .sub code { font-family: var(--font-data); font-size: 0.95em; color
   <section aria-labelledby="h-flags">
     <div class="section-head">
       <h2 id="h-flags">Flags</h2>
-      <p class="sub">Month-on-month moves of 3× or more, series appearing or dropping to zero (≥1 t), and unit values at 3× or ⅓ of the series median, on every series that involves Malaysia.</p>
+      <p class="sub">Month-on-month moves of 3× or more, series appearing or dropping to zero (≥1 t), and unit values at 3× or ⅓ of the series median, on every series that involves Malaysia. Unit values here stay in US$, the currency the check runs in.</p>
     </div>
     <div id="flags"></div>
   </section>
@@ -285,6 +286,7 @@ footer code, .sub code { font-family: var(--font-data); font-size: 0.95em; color
       <p class="sub">The latest month each reporter has released. In a released month a missing row counts as zero; months not yet released stay blank.</p>
     </div>
     <div class="tbl-wrap" id="coverage"></div>
+    <details><summary>Exchange rates used for ringgit, month by month</summary><div class="tbl-wrap" id="fx"></div></details>
     <details><summary>2023 carbonate backtest, month by month</summary><div class="tbl-wrap" id="backtest"></div></details>
   </section>
 </main>
@@ -315,6 +317,7 @@ const changeCounts = rows("dash_change_counts");
 const coverage = rows("dash_coverage");
 const status = rows("dash_status")[0] || {};
 const backtest = rows("dash_backtest");
+const fxMonthly = rows("dash_fx_monthly");
 
 const mirrorIndex = new Map();
 for (const r of mirrorMonthly) {
@@ -324,14 +327,15 @@ for (const r of mirrorMonthly) {
 }
 
 /* ---------- state ---------- */
-const state = { hs6: products[0] ? products[0].hs6 : null, win: "36m", flagsAll: false };
+const state = { hs6: products[0] ? products[0].hs6 : null, win: "36m", cur: "rm", flagsAll: false };
 try {
   const saved = JSON.parse(localStorage.getItem("ree-dash") || "{}");
   if (products.some(p => p.hs6 === saved.hs6)) state.hs6 = saved.hs6;
   if (windows.some(w => w.win === saved.win)) state.win = saved.win;
+  if (saved.cur === "rm" || saved.cur === "usd") state.cur = saved.cur;
 } catch (e) { /* storage unavailable */ }
 function save() {
-  try { localStorage.setItem("ree-dash", JSON.stringify({ hs6: state.hs6, win: state.win })); } catch (e) { /* ignore */ }
+  try { localStorage.setItem("ree-dash", JSON.stringify({ hs6: state.hs6, win: state.win, cur: state.cur })); } catch (e) { /* ignore */ }
 }
 
 /* ---------- formatting ---------- */
@@ -348,12 +352,25 @@ const fmtTBare = v => v == null ? "—" : fmtNum(v, tDigits(v));
 function fmtUsd(v) {
   if (v == null) return "—";
   const a = Math.abs(v);
-  if (a >= 1e9) return `$${fmtNum(v / 1e9, 2)}B`;
-  if (a >= 1e6) return `$${fmtNum(v / 1e6, 1)}M`;
-  if (a >= 1e4) return `$${fmtNum(v / 1e3, 0)}k`;
-  return `$${fmtNum(v, 0)}`;
+  if (a >= 1e9) return `US$${fmtNum(v / 1e9, 2)}B`;
+  if (a >= 1e6) return `US$${fmtNum(v / 1e6, 1)}M`;
+  if (a >= 1e4) return `US$${fmtNum(v / 1e3, 0)}k`;
+  return `US$${fmtNum(v, 0)}`;
 }
-const fmtUsdKg = v => v == null ? "—" : `$${fmtNum(v, 2)}/kg`;
+const fmtUsdKg = v => v == null ? "—" : `US$${fmtNum(v, 2)}/kg`;
+function fmtRm(v) {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  if (a >= 1e9) return `RM${fmtNum(v / 1e9, 2)}bil`;
+  if (a >= 1e6) return `RM${fmtNum(v / 1e6, 1)}mil`;
+  return `RM${fmtNum(v, 0)}`;
+}
+// Money columns for the chosen currency: rm* columns are converted in SQL at BNM's monthly rate.
+const CUR = {
+  rm: { key: "rm", label: "RM", fmt: fmtRm, fmtKg: v => v == null ? "—" : `RM${fmtNum(v, 2)}/kg` },
+  usd: { key: "usd", label: "US$", fmt: fmtUsd, fmtKg: fmtUsdKg },
+};
+const cur = () => CUR[state.cur];
 const fmtPct = v => v == null ? "—" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmtNum(Math.abs(v), 1)}%`;
 const fmtRatio = v => v == null ? "—" : v > 0 && v < 0.01 ? "<0.01×" : `${fmtNum(v, 2)}×`;
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
@@ -503,6 +520,7 @@ function renderMeta() {
   if (meta.latest_fetch) bits.push(`Fetched <b>${esc(meta.latest_fetch)}</b>`);
   bits.push(meta.has_snapshot ? `Compared with commit <b>${esc((meta.snapshot_commit || "").slice(0, 7))}</b>` : "No committed snapshot yet");
   bits.push(meta.has_gacc_imports ? "China GACC import lines loaded" : "No China GACC lines loaded");
+  bits.push(meta.fx_latest_month ? `BNM exchange rates through <b>${esc(fmtMonth(meta.fx_latest_month))}</b>` : "No BNM exchange rates loaded");
   document.getElementById("meta").innerHTML = bits.map(b => `<span>${b}</span>`).join("");
 }
 
@@ -516,6 +534,8 @@ function renderFilters() {
   }).join("");
   document.getElementById("windows").innerHTML = windows.map(w =>
     `<button type="button" id="win-${w.win}" data-win="${w.win}" aria-pressed="${w.win === state.win}">${esc(w.label)}</button>`).join("");
+  document.getElementById("currency").innerHTML = Object.entries(CUR).map(([k, c]) =>
+    `<button type="button" id="cur-${k}" data-cur="${k}" aria-pressed="${k === state.cur}">${c.label}</button>`).join("");
 }
 
 function renderStatus() {
@@ -543,6 +563,7 @@ function renderHeadline() {
     ? `Malaysia's exports to the world, the 12 months to ${fmtMonth(k.latest_month)} against the 12 before.` : "";
   const tiles = document.getElementById("tiles"), notes = document.getElementById("tile-notes");
   if (!k) { tiles.innerHTML = ""; notes.innerHTML = ""; return; }
+  const c = cur();
   const delta = (pct, prev, f) => pct == null
     ? `<span class="delta">${prev ? "" : "Nothing exported in the 12 months before"}</span>`
     : `<span class="delta">${pct > 0 ? "▲" : pct < 0 ? "▼" : "■"} ${fmtPct(pct)} vs ${f(prev)} the 12 months before</span>`;
@@ -550,9 +571,9 @@ function renderHeadline() {
     <div class="tile"><span class="eyebrow">Exported, last 12 months</span>
       <span class="big">${fmtTBare(k.t_12m)}<span class="unit">t</span></span>${delta(k.t_change_pct, k.t_prev_12m, fmtT)}</div>
     <div class="tile"><span class="eyebrow">Value, last 12 months</span>
-      <span class="big">${fmtUsd(k.usd_12m)}</span>${delta(k.usd_change_pct, k.usd_prev_12m, fmtUsd)}</div>
+      <span class="big">${c.fmt(k[`${c.key}_12m`])}</span>${delta(k[`${c.key}_change_pct`], k[`${c.key}_prev_12m`], c.fmt)}</div>
     <div class="tile"><span class="eyebrow">Unit value, last 12 months</span>
-      <span class="big">${k.usd_per_kg_12m == null ? "—" : "$" + fmtNum(k.usd_per_kg_12m, 2)}<span class="unit">/kg</span></span>
+      <span class="big">${k[`${c.key}_per_kg_12m`] == null ? "—" : c.label + fmtNum(k[`${c.key}_per_kg_12m`], 2)}<span class="unit">/kg</span></span>
       <span class="delta">FOB, on rows that report a weight</span></div>
     <div class="tile"><span class="eyebrow">${esc(fmtMonth(k.latest_month))}</span>
       <span class="big">${fmtTBare(k.t_latest)}<span class="unit">t</span></span><span class="delta">latest month released</span></div>`;
@@ -575,8 +596,8 @@ function renderTrend() {
       const r = data[i];
       if (r.t == null && r.usd == null) return `<b>${fmtMonth(r.month)}</b><br>Not released`;
       return `<b>${fmtMonth(r.month)}</b>${tipRow("var(--my)", "Exported", fmtT(r.t))}
-        <div class="row">Value<span class="val">${fmtUsd(r.usd)}</span></div>
-        <div class="row">Unit value<span class="val">${fmtUsdKg(r.usd_per_kg)}</span></div>`;
+        <div class="row">Value<span class="val">${cur().fmt(r[cur().key])}</span></div>
+        <div class="row">Unit value<span class="val">${cur().fmtKg(r[`${cur().key}_per_kg`])}</span></div>`;
     },
   });
   const gaps = data.filter(r => r.t == null).length;
@@ -585,8 +606,8 @@ function renderTrend() {
   document.getElementById("trend-table").innerHTML = table([
     { key: "month", label: "Month", m: 1 },
     { key: "t", label: "Tonnes", n: 1, fmt: v => v == null ? "not released" : fmtTBare(v) },
-    { key: "usd", label: "USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
-    { key: "usd_per_kg", label: "USD/kg", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 2) },
+    { key: cur().key, label: cur().label, n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: `${cur().key}_per_kg`, label: `${cur().label}/kg`, n: 1, fmt: v => v == null ? "—" : fmtNum(v, 2) },
   ], [...data].reverse());
 }
 
@@ -598,7 +619,7 @@ function renderDestinations() {
   else {
     const max = Math.max(...data.map(r => r.t || 0)) || 1;
     host.innerHTML = data.map(r => `
-      <div class="bar-row" title="${esc(r.partner)}: ${esc(fmtT(r.t))}, ${esc(fmtUsd(r.usd))}">
+      <div class="bar-row" title="${esc(r.partner)}: ${esc(fmtT(r.t))}, ${esc(cur().fmt(r[cur().key]))}">
         <span class="bar-label">${esc(r.partner)}</span>
         <span class="bar-track"><span class="bar" style="width:calc((100% - 7.5em) * ${(r.t || 0) / max})"></span>
           <span class="bar-val">${fmtTBare(r.t)}${r.share_of_world_pct != null ? ` · ${fmtNum(r.share_of_world_pct, 1)}%` : ""}</span></span>
@@ -609,13 +630,13 @@ function renderDestinations() {
     { key: "partner", label: "Destination" },
     { key: "partner_code", label: "M49", m: 1 },
     { key: "t", label: "Tonnes", n: 1, fmt: fmtTBare },
-    { key: "usd", label: "USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: cur().key, label: cur().label, n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
     { key: "share_of_world_pct", label: "Share of world", n: 1, fmt: v => v == null ? "—" : `${fmtNum(v, 1)}%` },
   ], data);
   renderYears();
 }
 
-// Rows: the World row, then every destination ranked by all-time tonnes; cells: tonnes and USD.
+// Rows: the World row, then every destination ranked by all-time tonnes; cells: tonnes and value.
 function renderYears() {
   const data = exportsYearly.filter(r => r.hs6 === state.hs6);
   const host = document.getElementById("dest-years");
@@ -629,7 +650,7 @@ function renderYears() {
   const head = years.map(y => `<th class="n" scope="col">${y}${released.get(y) < 12 ? ` <span title="months released">(${released.get(y)} mo)</span>` : ""}</th>`).join("");
   const body = partners.filter(c => name.has(c)).map(c => `<tr><td>${c === 0 ? "<b>World</b>" : esc(name.get(c))}</td>` + years.map(y => {
     const r = cell.get(`${c}|${y}`);
-    return r ? `<td class="n">${fmtT(r.t)}<br><span class="small">${fmtUsd(r.usd)}${r.usd_per_kg != null ? ` · ${fmtUsdKg(r.usd_per_kg)}` : ""}</span></td>` : '<td class="n">·</td>';
+    return r ? `<td class="n">${fmtT(r.t)}<br><span class="small">${cur().fmt(r[cur().key])}${r[`${cur().key}_per_kg`] != null ? ` · ${cur().fmtKg(r[`${cur().key}_per_kg`])}` : ""}</span></td>` : '<td class="n">·</td>';
   }).join("") + "</tr>").join("");
   host.innerHTML = `<p class="small">From <code>dash_exports_yearly</code>. A dot means no row that year.</p><table><thead><tr><th scope="col">Destination</th>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
@@ -672,9 +693,9 @@ function renderMirror() {
     { key: "my_t", label: "Malaysia, t", n: 1, fmt: fmtTBare },
     { key: "mirror_t", label: "Partner, t", n: 1, fmt: fmtTBare },
     { key: "mirror_to_my_ratio", label: "Partner ÷ Malaysia, t", n: 1, fmt: fmtRatio },
-    { key: "my_usd", label: "Malaysia, USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
-    { key: "mirror_usd", label: "Partner, USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
-    { key: "mirror_to_my_usd_ratio", label: "Partner ÷ Malaysia, USD", n: 1, fmt: fmtRatio },
+    { key: `my_${cur().key}`, label: `Malaysia, ${cur().label}`, n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: `mirror_${cur().key}`, label: `Partner, ${cur().label}`, n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: "mirror_to_my_usd_ratio", label: "Partner ÷ Malaysia, value", n: 1, fmt: fmtRatio },
     { key: "months_compared", label: "Months compared", n: 1, fmt: (v, r) => `${v} of ${r.months_in_window}` },
   ], sums);
 }
@@ -687,10 +708,11 @@ function ratioText(s) {
 }
 function valueText(s) {
   if (!s.months_compared) return "not comparable yet";
+  const c = cur(), mine = s[`my_${c.key}`], theirs = s[`mirror_${c.key}`];
   if (!s.my_usd && !s.mirror_usd) return "no trade either side";
-  if (!s.my_usd) return `only the partner records trade (${fmtUsd(s.mirror_usd)})`;
-  if (!s.mirror_usd) return `only Malaysia records trade (${fmtUsd(s.my_usd)})`;
-  return `${s.mirror_to_my_usd_ratio === 0 ? "<0.01×" : fmtRatio(s.mirror_to_my_usd_ratio)}, ${fmtUsd(s.mirror_usd)} against ${fmtUsd(s.my_usd)}`;
+  if (!s.my_usd) return `only the partner records trade (${c.fmt(theirs)})`;
+  if (!s.mirror_usd) return `only Malaysia records trade (${c.fmt(mine)})`;
+  return `${s.mirror_to_my_usd_ratio === 0 ? "<0.01×" : fmtRatio(s.mirror_to_my_usd_ratio)}, ${c.fmt(theirs)} against ${c.fmt(mine)}`;
 }
 
 const FLAG = {
@@ -760,6 +782,11 @@ function renderCoverage() {
     { key: "latest_with_rows", label: "Latest with rows", m: 1, fmt: v => esc(v || "—") },
     { key: "months_released", label: "Months released", n: 1 },
   ], coverage);
+  document.getElementById("fx").innerHTML = `<p class="small">Bank Negara Malaysia, US$1 in ringgit: the noon (12:00) middle rate averaged over the days it was published, from <code>dash_fx_monthly</code>.</p>` + table([
+    { key: "month", label: "Month", m: 1 },
+    { key: "usd_myr", label: "RM per US$", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 4) },
+    { key: "days", label: "Days", n: 1 },
+  ], [...fxMonthly].reverse());
   document.getElementById("backtest").innerHTML = table([
     { key: "month", label: "Month", m: 1 },
     { key: "malaysia_export_kg", label: "Malaysia exports, kg", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
@@ -773,7 +800,7 @@ function renderCoverage() {
 function renderFooter() {
   document.getElementById("footer").innerHTML = `
     <p>Written by <code>python -m monitor.run</code>. Every figure comes from <code>sql/80_dashboard.sql</code> (the <code>dash_*</code> tables in <code>build/monitor.duckdb</code>), built on the checks in <code>sql/checks/</code>; cite the table and row, not this page.</p>
-    <p>Weights are net tonnes as reported. Values in USD: exports FOB, partners' imports CIF. 2846.90 includes rare earth carbonate along with every other rare earth compound except cerium.</p>`;
+    <p>Weights are net tonnes as reported. Values as filed in US$ (exports FOB, partners' imports CIF); ringgit figures convert each month at Bank Negara Malaysia's average noon middle rate for that month, so they can differ slightly from DOSM's own ringgit figures. 2846.90 includes rare earth carbonate along with every other rare earth compound except cerium.</p>`;
 }
 
 function renderScoped() {
@@ -789,6 +816,13 @@ document.getElementById("cells").addEventListener("click", e => {
   state.hs6 = b.dataset.hs6; state.flagsAll = false; save();
   document.querySelectorAll("#cells .cell").forEach(c => c.setAttribute("aria-pressed", c.dataset.hs6 === state.hs6));
   renderScoped();
+});
+document.getElementById("currency").addEventListener("click", e => {
+  const b = e.target.closest("[data-cur]");
+  if (!b) return;
+  state.cur = b.dataset.cur; save();
+  document.querySelectorAll("#currency button").forEach(c => c.setAttribute("aria-pressed", c.dataset.cur === state.cur));
+  renderScoped(); renderFooter();
 });
 document.getElementById("windows").addEventListener("click", e => {
   const b = e.target.closest("[data-win]");

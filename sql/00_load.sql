@@ -5,6 +5,7 @@
 CREATE OR REPLACE TABLE comtrade      AS SELECT * REPLACE (period::DATE AS period) FROM read_parquet('data/clean/comtrade.parquet');
 CREATE OR REPLACE TABLE availability  AS SELECT * REPLACE (period::DATE AS period) FROM read_parquet('data/clean/availability.parquet');
 CREATE OR REPLACE TABLE gacc          AS SELECT * REPLACE (period::DATE AS period) FROM read_parquet('data/clean/gacc.parquet');
+CREATE OR REPLACE TABLE fx            AS SELECT * REPLACE (date::DATE AS date) FROM read_parquet('data/clean/fx.parquet');
 
 -- build/prev/ holds data/clean/*.parquet as of git HEAD (empty tables if never committed).
 CREATE OR REPLACE TABLE prev_comtrade AS SELECT * REPLACE (period::DATE AS period) FROM read_parquet('build/prev/comtrade.parquet');
@@ -34,3 +35,11 @@ SELECT DISTINCT flow, period FROM gacc;
 CREATE OR REPLACE TABLE gacc_from_malaysia AS
 SELECT * FROM gacc
 WHERE flow = 'M' AND (partner = '马来西亚' OR lower(partner) LIKE '%malaysia%');
+
+-- Bank Negara's noon (session 1200) USD/MYR middle rate, averaged over the days it
+-- was published in each month. Ringgit figures convert each month's USD at this rate.
+CREATE OR REPLACE TABLE fx_monthly AS
+SELECT date_trunc('month', date)::DATE AS period, avg(middle_rate) AS usd_myr, count(*) AS days
+FROM fx
+WHERE session = '1200' AND middle_rate IS NOT NULL
+GROUP BY 1;

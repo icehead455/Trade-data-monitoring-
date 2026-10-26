@@ -11,7 +11,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from monitor import build_db, clean, config, dashboard, fetch_comtrade, ingest_gacc
+from monitor import build_db, clean, config, dashboard, fetch_bnm, fetch_comtrade, ingest_gacc
 from monitor.run import main
 
 REPO = Path(__file__).resolve().parent.parent
@@ -35,6 +35,18 @@ def write_raw(root, date, name, body, status=200):
         f.write(json.dumps({"file": name, "status": status}) + "\n")
 
 
+def write_bnm(root, date, year, month, rate, status=200):
+    d = root / "data/raw" / date / "bnm"
+    d.mkdir(parents=True, exist_ok=True)
+    name = fetch_bnm.raw_name(year, month)
+    days = [{"date": f"{year}-{month:02d}-{day:02d}", "buying_rate": rate - 0.01,
+             "selling_rate": rate + 0.01, "middle_rate": rate} for day in (2, 3)]
+    (d / name).write_text(json.dumps({"data": {"currency_code": "USD", "unit": 1, "rate": days},
+                                      "meta": {"quote": "rm", "session": "1200"}}))
+    with (d / "manifest.jsonl").open("a") as f:
+        f.write(json.dumps({"file": name, "status": status}) + "\n")
+
+
 @pytest.fixture
 def root(tmp_path):
     shutil.copytree(REPO / "sql", tmp_path / "sql")
@@ -53,6 +65,8 @@ def root(tmp_path):
               {"data": [{"reporterCode": 156, "period": f"2023{m:02d}"} for m in range(1, 7)]})
     # A later fetch that failed must not displace the good one.
     write_raw(tmp_path, "2026-10-02", "comtrade_r156_M_p458_2023.json", {"error": "x"}, status=429)
+    for m in range(1, 7):
+        write_bnm(tmp_path, "2026-10-01", 2023, m, 4.0)
 
     csv = ("数据年月,商品编码,商品名称,贸易伙伴编码,贸易伙伴名称,第一数量,第一计量单位,第二数量,第二计量单位,美元\n"
            "202302,28469048,碳酸镧,112,马来西亚,\"1,000\",千克,,,5000\n"
@@ -145,13 +159,52 @@ def test_dashboard(root):
     assert s["all", "comtrade"]["months_compared"] == 6
     assert (s["all", "comtrade"]["my_usd"], s["all", "comtrade"]["mirror_usd"]) == (565000, 623400)
 
+    assert (s["all", "comtrade"]["my_rm"], s["all", "comtrade"]["mirror_rm"]) == (2260000, 2493600)
+
     y = {(r["partner_code"], r["year"]): r for r in dash_table(page, "dash_exports_yearly") if r["hs6"] == "284690"}
     assert (y[156, 2023]["t"], y[156, 2023]["usd"], y[156, 2023]["months_released"]) == (113, 565000, 6)
     assert y[0, 2023]["t"] == 50
+    assert (y[156, 2023]["rm"], y[156, 2023]["rm_per_kg"]) == (2260000, 20)
+    assert (k["usd_12m"], k["rm_12m"]) == (250000, 1000000)
+    assert [r["usd_myr"] for r in dash_table(page, "dash_fx_monthly")] == [4.0] * 6
 
     assert [r["partner_code"] for r in dash_table(page, "dash_destinations")
             if r["win"] == "all" and r["hs6"] == "284690"] == [156]
     assert dash_table(page, "dash_status")[0]["backtest_verdict"] == "PASS"
+
+
+def test_ringgit_total_is_null_when_a_month_has_no_rate(root):
+    p = root / "data/raw/2026-10-01/bnm" / fetch_bnm.raw_name(2023, 3)
+    p.write_text(json.dumps({"data": {"currency_code": "USD", "unit": 1, "rate": []},
+                             "meta": {"quote": "rm", "session": "1200"}}))
+    main(["--no-fetch"], root=root)
+    page = (root / "reports/dashboard.html").read_text(encoding="utf-8")
+    y = {(r["partner_code"], r["year"]): r for r in dash_table(page, "dash_exports_yearly") if r["hs6"] == "284690"}
+    assert (y[156, 2023]["usd"], y[156, 2023]["rm"]) == (565000, None)
+    m = {r["month"]: r for r in dash_table(page, "dash_exports_monthly") if r["hs6"] == "284690"}
+    assert (m["2023-02"]["rm"], m["2023-03"]["rm"]) == (1000000, 0)  # March: released, no World row
+
+
+def test_bnm_fetch_plan_and_raw_bytes(tmp_path, monkeypatch):
+    from datetime import date
+
+    assert list(fetch_bnm.months_plan(date(2019, 3, 5))) == [(2019, 1), (2019, 2), (2019, 3)]
+
+    class Resp:
+        status_code, ok = 200, True
+        content = b'{"data": {"currency_code": "USD", "rate": []},  "meta": {"session": "1200"}}'
+        def json(self): return json.loads(self.content)
+
+    class Sess:
+        headers = {}
+        def get(self, url, params, timeout):
+            assert params == config.BNM_PARAMS
+            return Resp()
+
+    monkeypatch.setattr(fetch_bnm.config, "BNM_SLEEP_S", 0)
+    out = fetch_bnm.fetch(tmp_path, today=date(2019, 2, 1), session=Sess())
+    assert (out / "usd_myr_2019_02.json").read_bytes() == Resp.content
+    assert len((out / "manifest.jsonl").read_text().splitlines()) == 2
 
 
 def test_dashboard_keeps_data_inside_script(tmp_path):
