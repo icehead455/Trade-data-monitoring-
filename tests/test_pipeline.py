@@ -143,6 +143,11 @@ def test_dashboard(root):
          if r["partner_code"] == 156 and r["hs6"] == "284690"}
     assert (s["all", "comtrade"]["my_t"], s["all", "comtrade"]["mirror_t"]) == (113, 103.9)
     assert s["all", "comtrade"]["months_compared"] == 6
+    assert (s["all", "comtrade"]["my_usd"], s["all", "comtrade"]["mirror_usd"]) == (565000, 623400)
+
+    y = {(r["partner_code"], r["year"]): r for r in dash_table(page, "dash_exports_yearly") if r["hs6"] == "284690"}
+    assert (y[156, 2023]["t"], y[156, 2023]["usd"], y[156, 2023]["months_released"]) == (113, 565000, 6)
+    assert y[0, 2023]["t"] == 50
 
     assert [r["partner_code"] for r in dash_table(page, "dash_destinations")
             if r["win"] == "all" and r["hs6"] == "284690"] == [156]

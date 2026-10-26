@@ -140,7 +140,7 @@ section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-w
 /* Panels and charts */
 .two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
 @media (max-width: 860px) { .two { grid-template-columns: minmax(0, 1fr); } }
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 14px 10px; display: grid; gap: 10px; min-width: 0; align-content: start; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 14px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; align-content: start; }
 .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; }
 .chart { position: relative; min-width: 0; }
 .chart svg { display: block; max-width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
@@ -250,12 +250,13 @@ footer code, .sub code { font-family: var(--font-data); font-size: 0.95em; color
         <details><summary>Show as table</summary><div class="tbl-wrap" id="dest-table"></div></details>
       </div>
     </div>
+    <details class="panel"><summary>Year by year, every destination (tonnes, USD, USD/kg)</summary><div class="tbl-wrap" id="dest-years"></div></details>
   </section>
 
   <section aria-labelledby="h-mirror">
     <div class="section-head">
       <h2 id="h-mirror">Mirror check</h2>
-      <p class="sub">What Malaysia says it exported to each partner, against what that partner says it imported from Malaysia. Partners record imports by origin and value them CIF; Malaysia records exports by destination, FOB. Hong Kong and Singapore re-export, so their gaps are structural. Months either side has not released are left blank.</p>
+      <p class="sub">What Malaysia says it exported to each partner, against what that partner says it imported from Malaysia. Partners record imports by origin and value them CIF; Malaysia records exports by destination, FOB. Hong Kong and Singapore re-export, so their gaps are structural. Totals are compared by weight and by value, because some partners file a value without a weight. Months either side has not released are left blank.</p>
     </div>
     <div class="legend" id="mirror-legend"></div>
     <div class="multiples" id="mirror"></div>
@@ -305,6 +306,7 @@ const meta = rows("dash_meta")[0] || {};
 const kpis = rows("dash_kpis");
 const exportsMonthly = rows("dash_exports_monthly");
 const destinations = rows("dash_destinations");
+const exportsYearly = rows("dash_exports_yearly");
 const mirrorMonthly = rows("dash_mirror_monthly");
 const mirrorSummary = rows("dash_mirror_summary");
 const flags = rows("dash_flags");
@@ -610,6 +612,26 @@ function renderDestinations() {
     { key: "usd", label: "USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
     { key: "share_of_world_pct", label: "Share of world", n: 1, fmt: v => v == null ? "—" : `${fmtNum(v, 1)}%` },
   ], data);
+  renderYears();
+}
+
+// Rows: the World row, then every destination ranked by all-time tonnes; cells: tonnes and USD.
+function renderYears() {
+  const data = exportsYearly.filter(r => r.hs6 === state.hs6);
+  const host = document.getElementById("dest-years");
+  if (!data.length) { host.innerHTML = '<p class="small">No exports recorded.</p>'; return; }
+  const years = [...new Set(data.map(r => r.year))].sort();
+  const released = new Map(data.map(r => [r.year, r.months_released]));
+  const order = [0, ...destinations.filter(r => r.hs6 === state.hs6 && r.win === "all").map(r => r.partner_code)];
+  const partners = [...new Set([...order, ...data.map(r => r.partner_code)])];
+  const cell = new Map(data.map(r => [`${r.partner_code}|${r.year}`, r]));
+  const name = new Map(data.map(r => [r.partner_code, r.partner_code === 0 ? "World" : r.partner]));
+  const head = years.map(y => `<th class="n" scope="col">${y}${released.get(y) < 12 ? ` <span title="months released">(${released.get(y)} mo)</span>` : ""}</th>`).join("");
+  const body = partners.filter(c => name.has(c)).map(c => `<tr><td>${c === 0 ? "<b>World</b>" : esc(name.get(c))}</td>` + years.map(y => {
+    const r = cell.get(`${c}|${y}`);
+    return r ? `<td class="n">${fmtT(r.t)}<br><span class="small">${fmtUsd(r.usd)}${r.usd_per_kg != null ? ` · ${fmtUsdKg(r.usd_per_kg)}` : ""}</span></td>` : '<td class="n">·</td>';
+  }).join("") + "</tr>").join("");
+  host.innerHTML = `<p class="small">From <code>dash_exports_yearly</code>. A dot means no row that year.</p><table><thead><tr><th scope="col">Destination</th>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
 function renderMirror() {
@@ -621,8 +643,8 @@ function renderMirror() {
     `<span class="small">${esc(win().label || "")} · each panel has its own scale</span>`;
   const host = document.getElementById("mirror");
   host.innerHTML = sums.map(s => `<div class="panel mini">
-      <div class="panel-head"><h3>${esc(s.partner)}${s.mirror_source === "gacc" ? '<span class="tag">GACC</span>' : ""}</h3>
-        <span class="ratio">${esc(ratioText(s))}</span></div>
+      <div class="panel-head"><h3>${esc(s.partner)}${s.mirror_source === "gacc" ? '<span class="tag">GACC</span>' : ""}</h3></div>
+      <p class="ratio">By weight: ${esc(ratioText(s))}<br>By value: ${esc(valueText(s))}</p>
       <div class="legend"><span><span class="key" style="background:var(--my)"></span>Malaysia ${fmtT(s.my_t)}</span>
         <span><span class="key" style="background:var(--partner)"></span>${esc(s.mirror_source === "gacc" ? "China (GACC)" : s.partner)} ${fmtT(s.mirror_t)}</span></div>
       <div class="chart" id="mini-${s.mirror_source}-${s.partner_code}"></div>
@@ -649,16 +671,26 @@ function renderMirror() {
     { key: "partner", label: "Partner", fmt: (v, r) => esc(v) + (r.mirror_source === "gacc" ? " (GACC)" : "") },
     { key: "my_t", label: "Malaysia, t", n: 1, fmt: fmtTBare },
     { key: "mirror_t", label: "Partner, t", n: 1, fmt: fmtTBare },
-    { key: "mirror_to_my_ratio", label: "Partner ÷ Malaysia", n: 1, fmt: fmtRatio },
+    { key: "mirror_to_my_ratio", label: "Partner ÷ Malaysia, t", n: 1, fmt: fmtRatio },
+    { key: "my_usd", label: "Malaysia, USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: "mirror_usd", label: "Partner, USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: "mirror_to_my_usd_ratio", label: "Partner ÷ Malaysia, USD", n: 1, fmt: fmtRatio },
     { key: "months_compared", label: "Months compared", n: 1, fmt: (v, r) => `${v} of ${r.months_in_window}` },
   ], sums);
 }
 function ratioText(s) {
-  if (!s.months_compared) return "Not comparable yet";
-  if (!s.my_t && !s.mirror_t) return "No trade either side";
-  if (!s.my_t) return "Only the partner records trade";
-  if (!s.mirror_t) return "Only Malaysia records trade";
-  return `Partner records ${s.mirror_to_my_ratio === 0 ? "<0.01×" : fmtRatio(s.mirror_to_my_ratio)} Malaysia's figure`;
+  if (!s.months_compared) return "not comparable yet";
+  if (!s.my_t && !s.mirror_t) return "no trade either side";
+  if (!s.my_t) return "only the partner records trade";
+  if (!s.mirror_t) return "only Malaysia records trade";
+  return `partner records ${s.mirror_to_my_ratio === 0 ? "<0.01×" : fmtRatio(s.mirror_to_my_ratio)} Malaysia's figure`;
+}
+function valueText(s) {
+  if (!s.months_compared) return "not comparable yet";
+  if (!s.my_usd && !s.mirror_usd) return "no trade either side";
+  if (!s.my_usd) return `only the partner records trade (${fmtUsd(s.mirror_usd)})`;
+  if (!s.mirror_usd) return `only Malaysia records trade (${fmtUsd(s.my_usd)})`;
+  return `${s.mirror_to_my_usd_ratio === 0 ? "<0.01×" : fmtRatio(s.mirror_to_my_usd_ratio)}, ${fmtUsd(s.mirror_usd)} against ${fmtUsd(s.my_usd)}`;
 }
 
 const FLAG = {

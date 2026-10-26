@@ -129,9 +129,35 @@ LEFT JOIN world w USING (win, hs6)
 WHERE r.rank <= 10
 ORDER BY r.win, r.hs6, r.rank;
 
+-- Malaysia's exports by calendar year, product and destination (partner 0 is
+-- the World row). months_released says how many months of that year Malaysia
+-- has released, so the latest year is partial until it reaches 12.
+CREATE OR REPLACE TABLE dash_exports_yearly AS
+WITH released AS (
+    SELECT year(period) AS year, count(*) AS months_released
+    FROM reporter_periods
+    WHERE reporter_code = 458 AND period >= DATE '2019-01-01'
+    GROUP BY year(period)
+)
+SELECT
+    c.hs6, c.partner_code, any_value(c.partner)                               AS partner,
+    year(c.period)                                                            AS year,
+    round(sum(c.net_wgt_kg) / 1000, 3)                                        AS t,
+    sum(c.value_usd)                                                          AS usd,
+    round(sum(c.value_usd) FILTER (WHERE c.net_wgt_kg > 0)
+          / nullif(sum(c.net_wgt_kg) FILTER (WHERE c.net_wgt_kg > 0), 0), 2)  AS usd_per_kg,
+    count(*)                                                                  AS months_with_rows,
+    any_value(r.months_released)                                              AS months_released
+FROM comtrade c
+LEFT JOIN released r ON r.year = year(c.period)
+WHERE c.reporter_code = 458 AND c.flow = 'X'
+GROUP BY c.hs6, c.partner_code, year(c.period)
+ORDER BY c.hs6, c.partner_code, year;
+
 -- Mirror check, every month: Malaysia's exports to P against P's imports from
 -- Malaysia (mirror_gap), with the months mirror_gap has no row for filled in as
--- 0 when released and NULL when not.
+-- 0 when released and NULL when not. USD follows the same rule, so a partner
+-- that files a value without a weight still shows up on the value side.
 CREATE OR REPLACE TABLE dash_mirror_monthly AS
 WITH months AS (
     SELECT unnest(generate_series(DATE '2019-01-01', (SELECT end_month FROM dash_windows WHERE win = 'all'),
@@ -152,7 +178,11 @@ SELECT
     round(CASE WHEN g.hs6 IS NOT NULL THEN g.my_kg
                WHEN r_my.period IS NOT NULL THEN 0 END / 1000, 3)     AS my_t,
     round(CASE WHEN g.hs6 IS NOT NULL THEN g.mirror_kg
-               WHEN r_mi.period IS NOT NULL THEN 0 END / 1000, 3)     AS mirror_t
+               WHEN r_mi.period IS NOT NULL THEN 0 END / 1000, 3)     AS mirror_t,
+    CASE WHEN g.hs6 IS NOT NULL AND g.my_kg IS NOT NULL THEN coalesce(g.my_value_usd, 0)
+         WHEN g.hs6 IS NULL AND r_my.period IS NOT NULL THEN 0 END    AS my_usd,
+    CASE WHEN g.hs6 IS NOT NULL AND g.mirror_kg IS NOT NULL THEN coalesce(g.mirror_value_usd, 0)
+         WHEN g.hs6 IS NULL AND r_mi.period IS NOT NULL THEN 0 END    AS mirror_usd
 FROM sources s
 CROSS JOIN dash_products p
 CROSS JOIN months m
@@ -163,7 +193,8 @@ LEFT JOIN released r_mi ON r_mi.mirror_source = s.mirror_source AND r_mi.partner
                        AND r_mi.period = m.period
 ORDER BY s.mirror_source, s.partner_code, p.sort, m.period;
 
--- Mirror totals per window over the months both sides have released.
+-- Mirror totals per window over the months both sides have released, in tonnes and USD
+-- (exports FOB, partners' imports CIF).
 CREATE OR REPLACE TABLE dash_mirror_summary AS
 SELECT
     w.win, d.mirror_source, d.partner_code, mp.name AS partner, d.hs6,
@@ -171,6 +202,10 @@ SELECT
     round(sum(d.mirror_t) FILTER (WHERE d.my_t IS NOT NULL AND d.mirror_t IS NOT NULL), 3) AS mirror_t,
     round(sum(d.mirror_t) FILTER (WHERE d.my_t IS NOT NULL AND d.mirror_t IS NOT NULL)
           / nullif(sum(d.my_t) FILTER (WHERE d.my_t IS NOT NULL AND d.mirror_t IS NOT NULL), 0), 3) AS mirror_to_my_ratio,
+    sum(d.my_usd)     FILTER (WHERE d.my_t IS NOT NULL AND d.mirror_t IS NOT NULL)           AS my_usd,
+    sum(d.mirror_usd) FILTER (WHERE d.my_t IS NOT NULL AND d.mirror_t IS NOT NULL)           AS mirror_usd,
+    round(sum(d.mirror_usd) FILTER (WHERE d.my_t IS NOT NULL AND d.mirror_t IS NOT NULL)
+          / nullif(sum(d.my_usd) FILTER (WHERE d.my_t IS NOT NULL AND d.mirror_t IS NOT NULL), 0), 3) AS mirror_to_my_usd_ratio,
     count(*) FILTER (WHERE d.my_t IS NOT NULL AND d.mirror_t IS NOT NULL)                  AS months_compared,
     count(*)                                                                               AS months_in_window
 FROM dash_mirror_monthly d

@@ -21,8 +21,7 @@ mom_jump_flag,mom_jumps,vanished,587
 rows,availability,,1595
 rows,comtrade,,3035
 rows,gacc,,0
-snapshot,snapshot_meta,has_snapshot,false
-snapshot_diff,snapshot_diff,comtrade added,3035
+snapshot,snapshot_meta,has_snapshot,true
 unit_value_flag,unit_value,high,73
 unit_value_flag,unit_value,low,145
 unit_value_flag,unit_value,no_weight,44
