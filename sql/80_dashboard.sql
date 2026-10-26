@@ -231,7 +231,7 @@ WHERE (SELECT has_snapshot FROM snapshot_meta)
 GROUP BY dataset, change
 ORDER BY dataset, change;
 
--- How far each source reaches.
+-- How far each source reaches. months_released counts from Jan 2019.
 CREATE OR REPLACE TABLE dash_coverage AS
 WITH reporters AS (
     SELECT 458 AS reporter_code, 'Malaysia' AS name, 'X' AS flow, 0 AS sort
@@ -243,7 +243,8 @@ SELECT
     (SELECT strftime(max(period), '%Y-%m') FROM comtrade c
       WHERE c.reporter_code = r.reporter_code AND c.flow = r.flow
         AND (r.flow = 'X' OR c.partner_code = 458))                                                 AS latest_with_rows,
-    (SELECT count(*) FROM reporter_periods p WHERE p.reporter_code = r.reporter_code)               AS months_released,
+    (SELECT count(*) FROM reporter_periods p
+      WHERE p.reporter_code = r.reporter_code AND p.period >= DATE '2019-01-01')                    AS months_released,
     r.sort
 FROM reporters r
 UNION ALL

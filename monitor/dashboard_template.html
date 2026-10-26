@@ -353,7 +353,7 @@ function fmtUsd(v) {
 }
 const fmtUsdKg = v => v == null ? "—" : `$${fmtNum(v, 2)}/kg`;
 const fmtPct = v => v == null ? "—" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmtNum(Math.abs(v), 1)}%`;
-const fmtRatio = v => v == null ? "—" : `${fmtNum(v, 2)}×`;
+const fmtRatio = v => v == null ? "—" : v > 0 && v < 0.01 ? "<0.01×" : `${fmtNum(v, 2)}×`;
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fmtAxis = v => compact.format(v);
 const product = hs6 => products.find(p => p.hs6 === hs6) || { code: hs6, label: "" };
@@ -626,7 +626,7 @@ function renderMirror() {
       <div class="legend"><span><span class="key" style="background:var(--my)"></span>Malaysia ${fmtT(s.my_t)}</span>
         <span><span class="key" style="background:var(--partner)"></span>${esc(s.mirror_source === "gacc" ? "China (GACC)" : s.partner)} ${fmtT(s.mirror_t)}</span></div>
       <div class="chart" id="mini-${s.mirror_source}-${s.partner_code}"></div>
-      <p class="small">${s.months_compared} of ${s.months_in_window} months released on both sides</p>
+      <p class="small">Totals cover the ${s.months_compared} of ${s.months_in_window} months both sides have released</p>
     </div>`).join("");
   for (const s of sums) {
     const all = mirrorIndex.get(`${s.mirror_source}|${s.partner_code}|${state.hs6}`) || [];
@@ -658,7 +658,7 @@ function ratioText(s) {
   if (!s.my_t && !s.mirror_t) return "No trade either side";
   if (!s.my_t) return "Only the partner records trade";
   if (!s.mirror_t) return "Only Malaysia records trade";
-  return `Partner records ${fmtRatio(s.mirror_to_my_ratio)} Malaysia's figure`;
+  return `Partner records ${s.mirror_to_my_ratio === 0 ? "<0.01×" : fmtRatio(s.mirror_to_my_ratio)} Malaysia's figure`;
 }
 
 const FLAG = {

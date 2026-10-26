@@ -1,5 +1,5 @@
 -- Load clean Parquet tables and the previous committed snapshot into DuckDB.
--- Paths are relative to the repo root (monitor/build_db.py sets file_search_path).
+-- Paths are relative to the repo root (monitor/build_db.py runs these files from there).
 -- Every check in sql/checks/ reads only the tables created here.
 
 CREATE OR REPLACE TABLE comtrade      AS SELECT * REPLACE (period::DATE AS period) FROM read_parquet('data/clean/comtrade.parquet');
