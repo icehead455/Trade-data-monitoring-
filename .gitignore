@@ -1,0 +1,7 @@
+# DuckDB is rebuilt from data/clean/*.parquet on every run
+*.duckdb
+*.duckdb.wal
+build/
+__pycache__/
+*.pyc
+.pytest_cache/
