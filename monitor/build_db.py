@@ -1,8 +1,9 @@
 """Rebuild build/monitor.duckdb from data/clean/ and run every .sql file.
 
-Order: sql/00_load.sql, sql/checks/*.sql (by name), sql/90_summary.sql.
-A file sql/checks/NN_<name>.sql must create table <name>; it is exported to
-reports/<name>.csv.
+Order: sql/00_load.sql, sql/checks/*.sql (by name), sql/80_dashboard.sql,
+sql/90_summary.sql. A file sql/checks/NN_<name>.sql must create table <name>;
+it is exported to reports/<name>.csv. The dash_* tables from 80_dashboard.sql
+are drawn by monitor/dashboard.py.
 """
 import csv
 import subprocess
@@ -52,7 +53,8 @@ def snapshot_prev(root: Path) -> dict:
 
 def sql_files(root: Path) -> list[Path]:
     sql = root / config.SQL_DIR
-    return [sql / "00_load.sql", *sorted((sql / "checks").glob("*.sql")), sql / "90_summary.sql"]
+    return [sql / "00_load.sql", *sorted((sql / "checks").glob("*.sql")), sql / "80_dashboard.sql",
+            sql / "90_summary.sql"]
 
 
 def check_table(path: Path) -> str | None:

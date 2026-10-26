@@ -11,7 +11,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from monitor import build_db, clean, config, fetch_comtrade, ingest_gacc
+from monitor import build_db, clean, config, dashboard, fetch_comtrade, ingest_gacc
 from monitor.run import main
 
 REPO = Path(__file__).resolve().parent.parent
@@ -110,6 +110,51 @@ def test_end_to_end(root):
     # no git repo -> no snapshot, everything shows as added
     assert q(root, "SELECT has_snapshot FROM snapshot_meta") == [(False,)]
     assert q(root, "SELECT DISTINCT change FROM snapshot_diff") == [("added",)]
+
+
+
+def dash_table(page, name):
+    data = json.loads(page.split("const DATA = ", 1)[1].split(";\n", 1)[0])
+    t = data[name]
+    return [dict(zip(t["columns"], r)) for r in t["rows"]]
+
+
+def test_dashboard(root):
+    main(["--no-fetch"], root=root)
+    page = (root / "reports/dashboard.html").read_text(encoding="utf-8")
+    assert dashboard.PLACEHOLDER not in page
+
+    # World row; released month without a row -> 0; unreleased month -> null
+    ex = {r["month"]: r["t"] for r in dash_table(page, "dash_exports_monthly") if r["hs6"] == "284690"}
+    assert ex["2023-02"] == 50 and ex["2023-01"] == 0 and ex["2022-12"] is None
+    assert max(ex) == "2023-06"
+
+    k = {r["hs6"]: r for r in dash_table(page, "dash_kpis")}["284690"]
+    assert (k["latest_month"], k["t_12m"], k["months_released_12m"]) == ("2023-06", 50, 6)
+
+    mm = {(r["mirror_source"], r["month"]): r for r in dash_table(page, "dash_mirror_monthly")
+          if r["partner_code"] == 156 and r["hs6"] == "284690"}
+    assert (mm["comtrade", "2023-03"]["my_t"], mm["comtrade", "2023-03"]["mirror_t"]) == (60, 45)
+    assert (mm["comtrade", "2023-06"]["my_t"], mm["comtrade", "2023-06"]["mirror_t"]) == (0, 0)
+    assert mm["comtrade", "2022-12"]["mirror_t"] is None
+    assert mm["gacc", "2023-03"]["mirror_t"] == 40.5
+
+    s = {(r["win"], r["mirror_source"]): r for r in dash_table(page, "dash_mirror_summary")
+         if r["partner_code"] == 156 and r["hs6"] == "284690"}
+    assert (s["all", "comtrade"]["my_t"], s["all", "comtrade"]["mirror_t"]) == (113, 103.9)
+    assert s["all", "comtrade"]["months_compared"] == 6
+
+    assert [r["partner_code"] for r in dash_table(page, "dash_destinations")
+            if r["win"] == "all" and r["hs6"] == "284690"] == [156]
+    assert dash_table(page, "dash_status")[0]["backtest_verdict"] == "PASS"
+
+
+def test_dashboard_keeps_data_inside_script(tmp_path):
+    con = duckdb.connect()
+    con.execute("CREATE TABLE dash_x AS SELECT '</script><b>' AS s")
+    page = dashboard.render(con, tmp_path).read_text(encoding="utf-8")
+    assert "</script><b>" not in page
+    assert dash_table(page, "dash_x") == [{"s": "</script><b>"}]
 
 
 def test_snapshot_diff_against_head(root):

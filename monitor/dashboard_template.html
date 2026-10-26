@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Malaysia REE Export Monitor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a customs ledger. A strip of HS-code cells (like element cells, with
+   last-12-month tonnage where an element shows its mass) scopes everything below:
+   status, headline figures, trend, destinations, mirror grid, flags, revisions, coverage. */
+:root {
+  --page: #f3f4f1;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6c6a65;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --line: rgba(11, 11, 11, 0.10);
+  --wash: rgba(11, 11, 11, 0.04);
+  --select-bg: #0b0b0b;
+  --select-ink: #fcfcfb;
+  --my: #2a78d6;
+  --partner: #eb6834;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --font-display: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0f100f; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #2c2c2a; --axis: #45453f; --line: rgba(255, 255, 255, 0.10); --wash: rgba(255, 255, 255, 0.05);
+    --select-bg: #f0efec; --select-ink: #1a1a19; --my: #3987e5; --partner: #d95926;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0f100f; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+  --grid: #2c2c2a; --axis: #45453f; --line: rgba(255, 255, 255, 0.10); --wash: rgba(255, 255, 255, 0.05);
+  --select-bg: #f0efec; --select-ink: #1a1a19; --my: #3987e5; --partner: #d95926;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 14px/1.5 var(--font-body);
+}
+[hidden] { display: none !important; }
+.wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1, h2, h3 { font-family: var(--font-display); font-stretch: 85%; text-wrap: balance; margin: 0; }
+h1 { font-size: 30px; font-weight: 750; line-height: 1.15; letter-spacing: -0.01em; }
+h2 { font-size: 20px; font-weight: 700; line-height: 1.25; }
+h3 { font-size: 15px; font-weight: 650; }
+p { margin: 0; }
+.mono { font-family: var(--font-data); }
+.num { font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--ink-2); max-width: 70ch; }
+.small { font-size: 12px; color: var(--muted); }
+:focus-visible { outline: 2px solid var(--my); outline-offset: 2px; }
+
+/* Header */
+header.top { padding-block: 28px 18px; display: grid; gap: 8px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--muted); }
+.meta b { color: var(--ink-2); font-weight: 500; font-family: var(--font-data); }
+
+/* Filter strip */
+.filters {
+  background: var(--page);
+  border-block: 1px solid var(--line);
+  z-index: 5;
+}
+@media (min-width: 760px) {
+  .filters { position: sticky; top: env(safe-area-inset-top, 0px); }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--page); }
+}
+.filters .wrap { padding-block: 10px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: stretch; }
+.cells { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 560px; min-width: 0; padding-bottom: 2px; }
+.cell {
+  flex: 1 0 128px;
+  display: grid; grid-template-rows: auto auto 1fr; gap: 2px;
+  text-align: left; padding: 7px 9px 8px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 4px;
+  font: inherit; cursor: pointer;
+}
+.cell:hover { background: var(--wash); }
+.cell[aria-pressed="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-bg); }
+.cell[aria-pressed="true"] .cell-mass, .cell[aria-pressed="true"] .cell-name { color: inherit; opacity: 0.8; }
+.cell-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.cell-code { font-family: var(--font-data); font-size: 17px; font-weight: 500; letter-spacing: -0.01em; }
+.cell-mass { font-family: var(--font-data); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cell-name { font-size: 11.5px; line-height: 1.3; color: var(--ink-2); }
+.seg { display: inline-flex; align-self: center; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--surface); }
+.seg button {
+  font: inherit; font-size: 13px; padding: 7px 11px; border: 0; background: none; color: var(--ink-2); cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button:hover { background: var(--wash); }
+.seg button[aria-pressed="true"] { background: var(--select-bg); color: var(--select-ink); }
+
+main { padding-block: 22px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 34px; }
+section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+.section-head { display: grid; gap: 4px; }
+
+/* Status strip */
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.status > div { background: var(--surface); padding: 12px 14px; display: grid; gap: 4px; align-content: start; }
+.status .v { font-size: 20px; font-weight: 600; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 2px 9px 2px 7px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); width: fit-content; }
+.chip svg { width: 14px; height: 14px; flex: none; }
+.st-good svg { color: var(--good); }
+.st-warning svg { color: var(--warning); }
+.st-critical svg { color: var(--critical); }
+
+/* Headline tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.tile { display: grid; gap: 4px; padding: 2px 0 0 12px; border-left: 2px solid var(--axis); }
+.tile .big { font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -0.01em; }
+.tile .unit { font-size: 15px; font-weight: 500; color: var(--ink-2); margin-left: 3px; }
+.delta { font-size: 12.5px; color: var(--ink-2); }
+.note { font-size: 12.5px; color: var(--ink-2); padding: 8px 12px; border: 1px solid var(--line); border-left: 3px solid var(--warning); border-radius: 4px; background: var(--surface); }
+
+/* Panels and charts */
+.two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+@media (max-width: 860px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 14px 10px; display: grid; gap: 10px; min-width: 0; align-content: start; }
+.panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; }
+.chart { position: relative; min-width: 0; }
+.chart svg { display: block; max-width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
+.chart svg:focus { outline: none; }
+.chart svg:focus-visible { outline: 2px solid var(--my); outline-offset: 2px; }
+.grid { stroke: var(--grid); stroke-width: 1; }
+.axis { stroke: var(--axis); stroke-width: 1; }
+.tick { fill: var(--muted); font: 11px var(--font-body); font-variant-numeric: tabular-nums; }
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.area { opacity: 0.12; stroke: none; }
+.xhair { stroke: var(--ink-2); stroke-width: 1; }
+.dot { stroke: var(--surface); stroke-width: 2; }
+.tip {
+  position: absolute; top: 0; z-index: 3; pointer-events: none;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); padding: 7px 9px; font-size: 12px; line-height: 1.45; white-space: nowrap;
+}
+.tip b { font-weight: 600; }
+.tip .row { display: flex; align-items: center; gap: 6px; }
+.tip .row .val { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Destination bars */
+.bars { display: grid; gap: 6px; }
+.bar-row { display: grid; grid-template-columns: minmax(84px, 9.5em) minmax(0, 1fr); gap: 2px 10px; align-items: center; font-size: 13px; }
+.bar-label { overflow-wrap: anywhere; line-height: 1.25; }
+.bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bar { height: 14px; background: var(--my); border-radius: 0 4px 4px 0; min-width: 2px; flex: none; }
+.bar-val { font-size: 12px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Mirror small multiples */
+.multiples { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.mini { padding: 12px 12px 8px; gap: 6px; }
+.mini .legend { font-size: 12px; gap: 2px 12px; }
+.tag { font-family: var(--font-data); font-size: 10.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; margin-left: 6px; vertical-align: 2px; }
+.ratio { font-size: 12.5px; color: var(--ink-2); }
+
+/* Tables */
+.tbl-wrap { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.m { font-family: var(--font-data); font-size: 12px; white-space: nowrap; }
+details > summary { cursor: pointer; font-size: 12.5px; color: var(--ink-2); width: fit-content; }
+details[open] > summary { margin-bottom: 6px; }
+.flag { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; font-size: 12px; font-weight: 600; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; }
+.more { font: inherit; font-size: 12.5px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer; width: fit-content; }
+.more:hover { background: var(--wash); }
+.counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.empty { padding: 18px; border: 1px dashed var(--axis); border-radius: 6px; color: var(--ink-2); background: var(--surface); }
+footer { border-top: 1px solid var(--line); padding-block: 16px 28px; font-size: 12px; color: var(--muted); display: grid; gap: 6px; }
+footer code, .sub code { font-family: var(--font-data); font-size: 0.95em; color: var(--ink-2); }
+@media (prefers-reduced-motion: no-preference) { .cell, .seg button, .more { transition: background-color 120ms; } }
+</style>
+
+<header class="top wrap">
+  <p class="eyebrow">Rare earth trade monitor · UN Comtrade &amp; China customs</p>
+  <h1>Malaysia's rare earth exports</h1>
+  <p class="sub">Monthly exports from Malaysia by HS code since January 2019, checked against what eight trading partners say they imported from Malaysia.</p>
+  <div class="meta" id="meta"></div>
+</header>
+
+<div class="filters">
+  <div class="wrap">
+    <div class="cells" id="cells" role="group" aria-label="Product (HS code)"></div>
+    <div class="seg" id="windows" role="group" aria-label="Time window"></div>
+  </div>
+</div>
+
+<main class="wrap" id="main">
+  <div class="empty" id="no-data" hidden>No data yet. Set <code>COMTRADE_KEY</code> and run <code>python -m monitor.run</code>; this page is rewritten at the end of every run.</div>
+
+  <section aria-labelledby="h-status">
+    <h2 id="h-status" class="eyebrow">Run status</h2>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section aria-labelledby="h-headline">
+    <div class="section-head">
+      <h2 id="h-headline"></h2>
+      <p class="small" id="headline-sub"></p>
+    </div>
+    <div class="tiles" id="tiles"></div>
+    <div id="tile-notes"></div>
+  </section>
+
+  <section aria-label="Trend and destinations">
+    <div class="two">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Monthly exports to the world</h3>
+          <span class="small">tonnes, Malaysia's "World" row</span>
+        </div>
+        <div class="chart" id="trend"></div>
+        <p class="small" id="trend-note"></p>
+        <details><summary>Show as table</summary><div class="tbl-wrap" id="trend-table"></div></details>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Top destinations</h3>
+          <span class="small" id="dest-sub"></span>
+        </div>
+        <div class="bars" id="dest"></div>
+        <details><summary>Show as table</summary><div class="tbl-wrap" id="dest-table"></div></details>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-mirror">
+    <div class="section-head">
+      <h2 id="h-mirror">Mirror check</h2>
+      <p class="sub">What Malaysia says it exported to each partner, against what that partner says it imported from Malaysia. Partners record imports by origin and value them CIF; Malaysia records exports by destination, FOB. Hong Kong and Singapore re-export, so their gaps are structural. Months either side has not released are left blank.</p>
+    </div>
+    <div class="legend" id="mirror-legend"></div>
+    <div class="multiples" id="mirror"></div>
+    <details><summary>Show totals as table</summary><div class="tbl-wrap" id="mirror-table"></div></details>
+  </section>
+
+  <section aria-labelledby="h-flags">
+    <div class="section-head">
+      <h2 id="h-flags">Flags</h2>
+      <p class="sub">Month-on-month moves of 3× or more, series appearing or dropping to zero (≥1 t), and unit values at 3× or ⅓ of the series median, on every series that involves Malaysia.</p>
+    </div>
+    <div id="flags"></div>
+  </section>
+
+  <section aria-labelledby="h-changes">
+    <div class="section-head">
+      <h2 id="h-changes">Revisions since the last commit</h2>
+      <p class="sub">Rows added, removed or revised compared with <code>data/clean/</code> at git HEAD. Comtrade revises past months, so check here before quoting a figure again.</p>
+    </div>
+    <div id="changes"></div>
+  </section>
+
+  <section aria-labelledby="h-coverage">
+    <div class="section-head">
+      <h2 id="h-coverage">Coverage</h2>
+      <p class="sub">The latest month each reporter has released. In a released month a missing row counts as zero; months not yet released stay blank.</p>
+    </div>
+    <div class="tbl-wrap" id="coverage"></div>
+    <details><summary>2023 carbonate backtest, month by month</summary><div class="tbl-wrap" id="backtest"></div></details>
+  </section>
+</main>
+
+<footer class="wrap" id="footer"></footer>
+
+<script>
+const DATA = /*__DASHBOARD_DATA__*/null;
+
+/* ---------- data access ---------- */
+function rows(name) {
+  const t = DATA && DATA[name];
+  if (!t) return [];
+  return t.rows.map(r => Object.fromEntries(t.columns.map((c, i) => [c, r[i]])));
+}
+const products = rows("dash_products");
+const windows = rows("dash_windows");
+const meta = rows("dash_meta")[0] || {};
+const kpis = rows("dash_kpis");
+const exportsMonthly = rows("dash_exports_monthly");
+const destinations = rows("dash_destinations");
+const mirrorMonthly = rows("dash_mirror_monthly");
+const mirrorSummary = rows("dash_mirror_summary");
+const flags = rows("dash_flags");
+const changes = rows("dash_changes");
+const changeCounts = rows("dash_change_counts");
+const coverage = rows("dash_coverage");
+const status = rows("dash_status")[0] || {};
+const backtest = rows("dash_backtest");
+
+const mirrorIndex = new Map();
+for (const r of mirrorMonthly) {
+  const k = `${r.mirror_source}|${r.partner_code}|${r.hs6}`;
+  if (!mirrorIndex.has(k)) mirrorIndex.set(k, []);
+  mirrorIndex.get(k).push(r);
+}
+
+/* ---------- state ---------- */
+const state = { hs6: products[0] ? products[0].hs6 : null, win: "36m", flagsAll: false };
+try {
+  const saved = JSON.parse(localStorage.getItem("ree-dash") || "{}");
+  if (products.some(p => p.hs6 === saved.hs6)) state.hs6 = saved.hs6;
+  if (windows.some(w => w.win === saved.win)) state.win = saved.win;
+} catch (e) { /* storage unavailable */ }
+function save() {
+  try { localStorage.setItem("ree-dash", JSON.stringify({ hs6: state.hs6, win: state.win })); } catch (e) { /* ignore */ }
+}
+
+/* ---------- formatting ---------- */
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const fmtMonth = m => m ? `${MONTHS[+m.slice(5, 7) - 1]} ${m.slice(0, 4)}` : "—";
+const fmtMonthShort = m => `${MONTHS[+m.slice(5, 7) - 1]} ’${m.slice(2, 4)}`;
+function fmtNum(v, digits) {
+  return v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+function tDigits(v) { const a = Math.abs(v); return a === 0 ? 0 : a < 1 ? 3 : a < 10 ? 2 : a < 100 ? 1 : 0; }
+const fmtT = v => v == null ? "—" : `${fmtNum(v, tDigits(v))} t`;
+const fmtTBare = v => v == null ? "—" : fmtNum(v, tDigits(v));
+function fmtUsd(v) {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  if (a >= 1e9) return `$${fmtNum(v / 1e9, 2)}B`;
+  if (a >= 1e6) return `$${fmtNum(v / 1e6, 1)}M`;
+  if (a >= 1e4) return `$${fmtNum(v / 1e3, 0)}k`;
+  return `$${fmtNum(v, 0)}`;
+}
+const fmtUsdKg = v => v == null ? "—" : `$${fmtNum(v, 2)}/kg`;
+const fmtPct = v => v == null ? "—" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmtNum(Math.abs(v), 1)}%`;
+const fmtRatio = v => v == null ? "—" : `${fmtNum(v, 2)}×`;
+const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+const fmtAxis = v => compact.format(v);
+const product = hs6 => products.find(p => p.hs6 === hs6) || { code: hs6, label: "" };
+const win = () => windows.find(w => w.win === state.win) || windows[0] || {};
+function inWindow(month) {
+  const w = win();
+  if (!w.start_month || !w.end_month) return false;
+  return month >= w.start_month.slice(0, 7) && month <= w.end_month.slice(0, 7);
+}
+
+const ICON = {
+  good: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M4.5 8.2l2.3 2.3 4.7-4.8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  warning: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.2l7 13H1z" fill="currentColor"/><path d="M8 5.6v4M8 11.6v.4" stroke="#0b0b0b" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  critical: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M5.4 5.4l5.2 5.2M10.6 5.4l-5.2 5.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>',
+};
+function statusChip(kind, label) { return `<span class="chip st-${kind}">${ICON[kind]}${esc(label)}</span>`; }
+
+/* ---------- generic table ---------- */
+function table(cols, data) {
+  if (!data.length) return '<p class="small">No rows.</p>';
+  const head = cols.map(c => `<th class="${c.n ? "n" : ""}" scope="col">${esc(c.label)}</th>`).join("");
+  const body = data.map(r => "<tr>" + cols.map(c => {
+    const v = c.fmt ? c.fmt(r[c.key], r) : esc(r[c.key] ?? "—");
+    return `<td class="${c.n ? "n" : c.m ? "m" : ""}">${v}</td>`;
+  }).join("") + "</tr>").join("");
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+/* ---------- line chart (SVG, one y axis) ---------- */
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+function scale(max, ticks) {
+  if (!(max > 0)) return { max: 1, step: 1 };
+  const step = niceStep(max / ticks);
+  return { max: Math.ceil(max / step - 1e-9) * step, step };
+}
+function xTicks(months, iw) {
+  const n = months.length;
+  if (!n) return [];
+  const per = n > 1 ? iw / (n - 1) : iw;
+  if (n > 18) {
+    const jans = months.map((m, i) => m.endsWith("-01") ? i : -1).filter(i => i >= 0);
+    const every = Math.max(1, Math.ceil(40 / (per * 12)));
+    return jans.filter((_, k) => k % every === 0).map(i => ({ i, label: months[i].slice(0, 4) }));
+  }
+  const every = Math.max(1, Math.ceil(54 / per));
+  return months.map((m, i) => ({ i, label: fmtMonthShort(m) })).filter(t => t.i % every === 0);
+}
+function lineChart(host, o) {
+  const { months, series, height = 240, mini = false, label = "", tip } = o;
+  const W = Math.max(220, Math.floor(host.clientWidth || 600));
+  const M = mini ? { l: 38, r: 10, t: 8, b: 20 } : { l: 48, r: 14, t: 10, b: 24 };
+  const iw = W - M.l - M.r, ih = height - M.t - M.b, n = months.length;
+  const vals = series.flatMap(s => s.values).filter(v => v != null);
+  const { max, step } = scale(vals.length ? Math.max(...vals) : 0, mini ? 2 : 4);
+  const X = i => M.l + (n <= 1 ? iw / 2 : (i * iw) / (n - 1));
+  const Y = v => M.t + ih - (v / max) * ih;
+  let s = `<svg viewBox="0 0 ${W} ${height}" width="${W}" height="${height}" role="img" aria-label="${esc(label)}" tabindex="0">`;
+  for (let k = 0; k * step <= max + 1e-9; k++) {
+    const v = k * step, y = Y(v).toFixed(1);
+    s += `<line class="${k === 0 ? "axis" : "grid"}" x1="${M.l}" x2="${W - M.r}" y1="${y}" y2="${y}"/>`;
+    s += `<text class="tick" x="${M.l - 6}" y="${y}" dy="0.32em" text-anchor="end">${fmtAxis(v)}</text>`;
+  }
+  for (const t of xTicks(months, iw)) {
+    const x = X(t.i);
+    const anchor = x < M.l + 16 ? "start" : x > W - M.r - 16 ? "end" : "middle";
+    s += `<text class="tick" x="${x.toFixed(1)}" y="${height - 5}" text-anchor="${anchor}">${esc(t.label)}</text>`;
+  }
+  for (const se of series) {
+    let seg = [];
+    const flush = () => {
+      if (seg.length === 1) {
+        s += `<circle cx="${X(seg[0]).toFixed(1)}" cy="${Y(se.values[seg[0]]).toFixed(1)}" r="2.5" style="fill:${se.color}"/>`;
+      } else if (seg.length > 1) {
+        const d = seg.map((i, k) => `${k ? "L" : "M"}${X(i).toFixed(1)},${Y(se.values[i]).toFixed(1)}`).join("");
+        if (se.area) s += `<path class="area" d="${d}L${X(seg[seg.length - 1]).toFixed(1)},${Y(0).toFixed(1)}L${X(seg[0]).toFixed(1)},${Y(0).toFixed(1)}Z" style="fill:${se.color}"/>`;
+        s += `<path class="line" d="${d}" style="stroke:${se.color}"/>`;
+      }
+      seg = [];
+    };
+    se.values.forEach((v, i) => { if (v == null) flush(); else seg.push(i); });
+    flush();
+    if (!mini) {
+      let last = -1;
+      se.values.forEach((v, i) => { if (v != null) last = i; });
+      if (last >= 0) s += `<circle class="dot" cx="${X(last).toFixed(1)}" cy="${Y(se.values[last]).toFixed(1)}" r="4" style="fill:${se.color}"/>`;
+    }
+  }
+  s += `<g class="hover" visibility="hidden"><line class="xhair" y1="${M.t}" y2="${M.t + ih}"/>`;
+  s += series.map(se => `<circle class="dot" r="4" style="fill:${se.color}"/>`).join("") + "</g>";
+  s += `<rect x="0" y="0" width="${W}" height="${height}" fill="transparent"/></svg><div class="tip" hidden></div>`;
+  host.innerHTML = s;
+
+  const svg = host.querySelector("svg"), hov = svg.querySelector(".hover"), tipEl = host.querySelector(".tip");
+  const xh = hov.querySelector("line"), dots = hov.querySelectorAll("circle");
+  let cur = -1;
+  function show(i) {
+    if (!n) return;
+    i = Math.max(0, Math.min(n - 1, i));
+    cur = i;
+    const x = X(i);
+    xh.setAttribute("x1", x); xh.setAttribute("x2", x);
+    series.forEach((se, k) => {
+      const v = se.values[i];
+      dots[k].setAttribute("visibility", v == null ? "hidden" : "visible");
+      if (v != null) { dots[k].setAttribute("cx", x); dots[k].setAttribute("cy", Y(v)); }
+    });
+    hov.setAttribute("visibility", "visible");
+    tipEl.innerHTML = tip(i);
+    tipEl.hidden = false;
+    const scaleX = svg.getBoundingClientRect().width / W || 1;
+    const px = x * scaleX, tw = tipEl.offsetWidth, hostW = host.clientWidth;
+    let left = px + 12;
+    if (left + tw > hostW) left = px - 12 - tw;
+    tipEl.style.left = `${Math.max(0, left)}px`;
+  }
+  function hide() { hov.setAttribute("visibility", "hidden"); tipEl.hidden = true; }
+  function fromPointer(e) {
+    const r = svg.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (W / r.width);
+    show(n <= 1 ? 0 : Math.round(((px - M.l) * (n - 1)) / iw));
+  }
+  svg.addEventListener("pointermove", fromPointer);
+  svg.addEventListener("pointerdown", fromPointer);
+  svg.addEventListener("pointerleave", hide);
+  svg.addEventListener("focus", () => show(cur < 0 ? n - 1 : cur));
+  svg.addEventListener("blur", hide);
+  svg.addEventListener("keydown", e => {
+    if (e.key === "ArrowLeft") { show(cur - 1); e.preventDefault(); }
+    if (e.key === "ArrowRight") { show(cur + 1); e.preventDefault(); }
+    if (e.key === "Escape") hide();
+  });
+}
+function tipRow(color, label, value) {
+  return `<div class="row"><span class="key" style="background:${color}"></span>${esc(label)}<span class="val">${value}</span></div>`;
+}
+
+/* ---------- sections ---------- */
+function renderMeta() {
+  const bits = [];
+  bits.push(`Malaysia reported through <b>${esc(fmtMonth(meta.my_latest_month))}</b>`);
+  if (meta.latest_fetch) bits.push(`Fetched <b>${esc(meta.latest_fetch)}</b>`);
+  bits.push(meta.has_snapshot ? `Compared with commit <b>${esc((meta.snapshot_commit || "").slice(0, 7))}</b>` : "No committed snapshot yet");
+  bits.push(meta.has_gacc_imports ? "China GACC import lines loaded" : "No China GACC lines loaded");
+  document.getElementById("meta").innerHTML = bits.map(b => `<span>${b}</span>`).join("");
+}
+
+function renderFilters() {
+  document.getElementById("cells").innerHTML = products.map(p => {
+    const k = kpis.find(r => r.hs6 === p.hs6);
+    const mass = k ? `${fmtTBare(k.t_12m)} t` : "";
+    return `<button type="button" class="cell" id="cell-${p.hs6}" data-hs6="${p.hs6}" aria-pressed="${p.hs6 === state.hs6}" title="${esc(p.label)}${mass ? ` · ${mass} exported in the last 12 months` : ""}">
+      <span class="cell-top"><span class="cell-code">${esc(p.code)}</span><span class="cell-mass">${esc(mass)}</span></span>
+      <span class="cell-name">${esc(p.label)}</span></button>`;
+  }).join("");
+  document.getElementById("windows").innerHTML = windows.map(w =>
+    `<button type="button" id="win-${w.win}" data-win="${w.win}" aria-pressed="${w.win === state.win}">${esc(w.label)}</button>`).join("");
+}
+
+function renderStatus() {
+  const v = status.backtest_verdict;
+  const kind = v === "PASS" ? "good" : v === "FAIL" ? "critical" : "warning";
+  const basis = status.backtest_china_basis === "gacc_hs8_carbonate"
+    ? "China side: GACC carbonate lines" : "China side: Comtrade 2846.90 as a proxy";
+  const nChanges = status.changes_since_snapshot;
+  document.getElementById("status").innerHTML = `
+    <div><span class="eyebrow">Latest month from Malaysia</span><span class="v">${esc(fmtMonth(meta.my_latest_month))}</span>
+      <span class="small">Windows on this page end here</span></div>
+    <div><span class="eyebrow">Backtest · carbonate to China, Feb–Apr 2023</span>${v ? statusChip(kind, v === "NO_DATA" ? "No data" : v) : "—"}
+      <span class="small">${esc(basis)}${status.backtest_months_matched != null ? ` · ${status.backtest_months_matched} of 3 months matched` : ""}</span></div>
+    <div><span class="eyebrow">Revisions since last commit</span>
+      <span class="v num">${meta.has_snapshot ? fmtNum(nChanges || 0, 0) : "—"}</span>
+      <span class="small">${meta.has_snapshot ? "rows added, removed or revised" : "Commit data/clean/ to start tracking"}</span></div>
+    <div><span class="eyebrow">Flags in the last 6 months</span><span class="v num">${fmtNum(status.flags_last_6m || 0, 0)}</span>
+      <span class="small">all products, listed under Flags</span></div>`;
+}
+
+function renderHeadline() {
+  const p = product(state.hs6), k = kpis.find(r => r.hs6 === state.hs6);
+  document.getElementById("h-headline").textContent = `${p.code} · ${p.label}`;
+  document.getElementById("headline-sub").textContent = k
+    ? `Malaysia's exports to the world, the 12 months to ${fmtMonth(k.latest_month)} against the 12 before.` : "";
+  const tiles = document.getElementById("tiles"), notes = document.getElementById("tile-notes");
+  if (!k) { tiles.innerHTML = ""; notes.innerHTML = ""; return; }
+  const delta = (pct, prev, f) => pct == null
+    ? `<span class="delta">${prev ? "" : "Nothing exported in the 12 months before"}</span>`
+    : `<span class="delta">${pct > 0 ? "▲" : pct < 0 ? "▼" : "■"} ${fmtPct(pct)} vs ${f(prev)} the 12 months before</span>`;
+  tiles.innerHTML = `
+    <div class="tile"><span class="eyebrow">Exported, last 12 months</span>
+      <span class="big">${fmtTBare(k.t_12m)}<span class="unit">t</span></span>${delta(k.t_change_pct, k.t_prev_12m, fmtT)}</div>
+    <div class="tile"><span class="eyebrow">Value, last 12 months</span>
+      <span class="big">${fmtUsd(k.usd_12m)}</span>${delta(k.usd_change_pct, k.usd_prev_12m, fmtUsd)}</div>
+    <div class="tile"><span class="eyebrow">Unit value, last 12 months</span>
+      <span class="big">${k.usd_per_kg_12m == null ? "—" : "$" + fmtNum(k.usd_per_kg_12m, 2)}<span class="unit">/kg</span></span>
+      <span class="delta">FOB, on rows that report a weight</span></div>
+    <div class="tile"><span class="eyebrow">${esc(fmtMonth(k.latest_month))}</span>
+      <span class="big">${fmtTBare(k.t_latest)}<span class="unit">t</span></span><span class="delta">latest month released</span></div>`;
+  const msgs = [];
+  if (k.months_released_12m < 12) msgs.push(`Only ${k.months_released_12m} of the last 12 months are released, so the 12-month figures are partial.`);
+  if (k.months_released_prev_12m < 12) msgs.push(`Only ${k.months_released_prev_12m} of the 12 months before are released, so the comparison is partial.`);
+  if (k.rows_without_weight_12m > 0) msgs.push(`${k.rows_without_weight_12m} month(s) in the last 12 report a value but no weight.`);
+  notes.innerHTML = msgs.length ? `<p class="note">${msgs.map(esc).join(" ")}</p>` : "";
+}
+
+function renderTrend() {
+  const data = exportsMonthly.filter(r => r.hs6 === state.hs6 && inWindow(r.month));
+  const months = data.map(r => r.month);
+  const host = document.getElementById("trend");
+  if (!data.length) { host.innerHTML = '<p class="small">No months in this window.</p>'; return; }
+  lineChart(host, {
+    months, height: 250, label: `Monthly exports of ${product(state.hs6).code} from Malaysia, tonnes`,
+    series: [{ label: "Exports", color: "var(--my)", values: data.map(r => r.t), area: true }],
+    tip: i => {
+      const r = data[i];
+      if (r.t == null && r.usd == null) return `<b>${fmtMonth(r.month)}</b><br>Not released`;
+      return `<b>${fmtMonth(r.month)}</b>${tipRow("var(--my)", "Exported", fmtT(r.t))}
+        <div class="row">Value<span class="val">${fmtUsd(r.usd)}</span></div>
+        <div class="row">Unit value<span class="val">${fmtUsdKg(r.usd_per_kg)}</span></div>`;
+    },
+  });
+  const gaps = data.filter(r => r.t == null).length;
+  document.getElementById("trend-note").textContent = gaps
+    ? `${gaps} month(s) in this window are not released (or report no weight) and are left blank.` : "";
+  document.getElementById("trend-table").innerHTML = table([
+    { key: "month", label: "Month", m: 1 },
+    { key: "t", label: "Tonnes", n: 1, fmt: v => v == null ? "not released" : fmtTBare(v) },
+    { key: "usd", label: "USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: "usd_per_kg", label: "USD/kg", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 2) },
+  ], [...data].reverse());
+}
+
+function renderDestinations() {
+  const data = destinations.filter(r => r.hs6 === state.hs6 && r.win === state.win);
+  document.getElementById("dest-sub").textContent = `${win().label || ""}, tonnes`;
+  const host = document.getElementById("dest");
+  if (!data.length) { host.innerHTML = '<p class="small">No exports recorded in this window.</p>'; }
+  else {
+    const max = Math.max(...data.map(r => r.t || 0)) || 1;
+    host.innerHTML = data.map(r => `
+      <div class="bar-row" title="${esc(r.partner)}: ${esc(fmtT(r.t))}, ${esc(fmtUsd(r.usd))}">
+        <span class="bar-label">${esc(r.partner)}</span>
+        <span class="bar-track"><span class="bar" style="width:calc((100% - 7.5em) * ${(r.t || 0) / max})"></span>
+          <span class="bar-val">${fmtTBare(r.t)}${r.share_of_world_pct != null ? ` · ${fmtNum(r.share_of_world_pct, 1)}%` : ""}</span></span>
+      </div>`).join("");
+  }
+  document.getElementById("dest-table").innerHTML = table([
+    { key: "rank", label: "#", n: 1 },
+    { key: "partner", label: "Destination" },
+    { key: "partner_code", label: "M49", m: 1 },
+    { key: "t", label: "Tonnes", n: 1, fmt: fmtTBare },
+    { key: "usd", label: "USD", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: "share_of_world_pct", label: "Share of world", n: 1, fmt: v => v == null ? "—" : `${fmtNum(v, 1)}%` },
+  ], data);
+}
+
+function renderMirror() {
+  const sums = mirrorSummary.filter(r => r.hs6 === state.hs6 && r.win === state.win);
+  const months = exportsMonthly.filter(r => r.hs6 === state.hs6 && inWindow(r.month)).map(r => r.month);
+  document.getElementById("mirror-legend").innerHTML =
+    `<span><span class="key" style="background:var(--my)"></span>Malaysia's exports to the partner</span>` +
+    `<span><span class="key" style="background:var(--partner)"></span>Partner's imports from Malaysia</span>` +
+    `<span class="small">${esc(win().label || "")} · each panel has its own scale</span>`;
+  const host = document.getElementById("mirror");
+  host.innerHTML = sums.map(s => `<div class="panel mini">
+      <div class="panel-head"><h3>${esc(s.partner)}${s.mirror_source === "gacc" ? '<span class="tag">GACC</span>' : ""}</h3>
+        <span class="ratio">${esc(ratioText(s))}</span></div>
+      <div class="legend"><span><span class="key" style="background:var(--my)"></span>Malaysia ${fmtT(s.my_t)}</span>
+        <span><span class="key" style="background:var(--partner)"></span>${esc(s.mirror_source === "gacc" ? "China (GACC)" : s.partner)} ${fmtT(s.mirror_t)}</span></div>
+      <div class="chart" id="mini-${s.mirror_source}-${s.partner_code}"></div>
+      <p class="small">${s.months_compared} of ${s.months_in_window} months released on both sides</p>
+    </div>`).join("");
+  for (const s of sums) {
+    const all = mirrorIndex.get(`${s.mirror_source}|${s.partner_code}|${state.hs6}`) || [];
+    const byMonth = new Map(all.map(r => [r.month, r]));
+    const data = months.map(m => byMonth.get(m) || { month: m, my_t: null, mirror_t: null });
+    const partnerName = s.mirror_source === "gacc" ? "China (GACC)" : s.partner;
+    lineChart(document.getElementById(`mini-${s.mirror_source}-${s.partner_code}`), {
+      months, height: 150, mini: true, label: `Malaysia's exports to ${s.partner} and ${partnerName}'s imports from Malaysia, tonnes`,
+      series: [
+        { label: "Malaysia", color: "var(--my)", values: data.map(r => r.my_t) },
+        { label: partnerName, color: "var(--partner)", values: data.map(r => r.mirror_t) },
+      ],
+      tip: i => {
+        const r = data[i];
+        return `<b>${fmtMonth(r.month)}</b>${tipRow("var(--my)", "Malaysia says", r.my_t == null ? "not released" : fmtT(r.my_t))}${tipRow("var(--partner)", `${partnerName} says`, r.mirror_t == null ? "not released" : fmtT(r.mirror_t))}`;
+      },
+    });
+  }
+  document.getElementById("mirror-table").innerHTML = table([
+    { key: "partner", label: "Partner", fmt: (v, r) => esc(v) + (r.mirror_source === "gacc" ? " (GACC)" : "") },
+    { key: "my_t", label: "Malaysia, t", n: 1, fmt: fmtTBare },
+    { key: "mirror_t", label: "Partner, t", n: 1, fmt: fmtTBare },
+    { key: "mirror_to_my_ratio", label: "Partner ÷ Malaysia", n: 1, fmt: fmtRatio },
+    { key: "months_compared", label: "Months compared", n: 1, fmt: (v, r) => `${v} of ${r.months_in_window}` },
+  ], sums);
+}
+function ratioText(s) {
+  if (!s.months_compared) return "Not comparable yet";
+  if (!s.my_t && !s.mirror_t) return "No trade either side";
+  if (!s.my_t) return "Only the partner records trade";
+  if (!s.mirror_t) return "Only Malaysia records trade";
+  return `Partner records ${fmtRatio(s.mirror_to_my_ratio)} Malaysia's figure`;
+}
+
+const FLAG = {
+  up: "▲ Up", down: "▼ Down", appeared: "◆ Appeared", vanished: "◇ Dropped to zero",
+  high: "$▲ High unit value", low: "$▼ Low unit value",
+};
+function seriesName(r) {
+  if (r.source === "gacc") return "China (GACC) imports from Malaysia";
+  if (r.flow === "X") return `Malaysia → ${r.partner_name}`;
+  return `${r.reporter_name} imports from Malaysia`;
+}
+function flagDetail(r) {
+  if (r.check_table === "unit_value")
+    return `${fmtUsdKg(r.usd_per_kg)} vs median ${fmtUsdKg(r.series_median_usd_per_kg)} (${fmtRatio(r.ratio)}) on ${fmtT(r.t)}`;
+  if (r.flag === "appeared") return `0 → ${fmtT(r.t)}`;
+  if (r.flag === "vanished") return `${fmtT(r.prev_t)} → 0`;
+  return `${fmtT(r.prev_t)} → ${fmtT(r.t)} (${fmtRatio(r.ratio)})`;
+}
+function renderFlags() {
+  const data = flags.filter(r => r.hs6 === state.hs6 && inWindow(r.month));
+  const host = document.getElementById("flags");
+  if (!data.length) { host.innerHTML = `<p class="empty">No flags for ${esc(product(state.hs6).code)} in this window.</p>`; return; }
+  const shown = state.flagsAll ? data : data.slice(0, 25);
+  host.innerHTML = `<div class="tbl-wrap">${table([
+    { key: "month", label: "Month", m: 1 },
+    { key: "flag", label: "Flag", fmt: v => `<span class="flag">${esc(FLAG[v] || v)}</span>` },
+    { key: "series", label: "Series", fmt: (v, r) => esc(seriesName(r)) },
+    { key: "code", label: "Code", m: 1 },
+    { key: "detail", label: "Detail", fmt: (v, r) => esc(flagDetail(r)) },
+    { key: "check_table", label: "Check", m: 1 },
+  ], shown)}</div>` + (data.length > 25
+    ? `<button type="button" class="more" id="flags-more">${state.flagsAll ? "Show the latest 25" : `Show all ${data.length} flags`}</button>` : "");
+  const btn = document.getElementById("flags-more");
+  if (btn) btn.addEventListener("click", () => { state.flagsAll = !state.flagsAll; renderFlags(); });
+}
+
+function renderChanges() {
+  const host = document.getElementById("changes");
+  if (!meta.has_snapshot) {
+    host.innerHTML = '<p class="empty">No committed snapshot yet. After reviewing a run, commit <code>data/raw/</code>, <code>data/clean/</code> and <code>reports/</code> together; the next run lists every revision here.</p>';
+    return;
+  }
+  if (!changeCounts.length) { host.innerHTML = '<p class="empty">Nothing changed since the last commit.</p>'; return; }
+  const data = changes.filter(r => (r.code || "").startsWith(state.hs6));
+  host.innerHTML = `<div class="counts">${changeCounts.map(c =>
+      `<span class="flag">${esc(c.dataset)} · ${esc(c.change)} · ${fmtNum(c.n, 0)}</span>`).join("")}</div>
+    <p class="small">Largest moves for ${esc(product(state.hs6).code)} (the 200 largest across all products are kept).</p>
+    <div class="tbl-wrap">${table([
+      { key: "month", label: "Month", m: 1 },
+      { key: "change", label: "Change" },
+      { key: "dataset", label: "Source" },
+      { key: "reporter", label: "Reporter", m: 1 },
+      { key: "flow", label: "Flow", m: 1 },
+      { key: "partner", label: "Partner", m: 1 },
+      { key: "code", label: "Code", m: 1 },
+      { key: "prev_t", label: "Before, t", n: 1, fmt: fmtTBare },
+      { key: "t", label: "Now, t", n: 1, fmt: fmtTBare },
+      { key: "t_delta", label: "Δ t", n: 1, fmt: fmtTBare },
+    ], data)}</div>`;
+}
+
+function renderCoverage() {
+  document.getElementById("coverage").innerHTML = table([
+    { key: "name", label: "Reporter" },
+    { key: "flow", label: "Flow", fmt: v => v === "X" ? "Exports" : "Imports from Malaysia" },
+    { key: "latest_released", label: "Latest released", m: 1, fmt: v => esc(v || "—") },
+    { key: "latest_with_rows", label: "Latest with rows", m: 1, fmt: v => esc(v || "—") },
+    { key: "months_released", label: "Months released", n: 1 },
+  ], coverage);
+  document.getElementById("backtest").innerHTML = table([
+    { key: "month", label: "Month", m: 1 },
+    { key: "malaysia_export_kg", label: "Malaysia exports, kg", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: "china_import_kg_same_month", label: "China, same month", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: "china_import_kg_next_month", label: "China, next month", n: 1, fmt: v => v == null ? "—" : fmtNum(v, 0) },
+    { key: "verdict", label: "Verdict" },
+    { key: "months_matched", label: "Matched", n: 1, fmt: v => v == null ? "" : v },
+  ], backtest);
+}
+
+function renderFooter() {
+  document.getElementById("footer").innerHTML = `
+    <p>Written by <code>python -m monitor.run</code>. Every figure comes from <code>sql/80_dashboard.sql</code> (the <code>dash_*</code> tables in <code>build/monitor.duckdb</code>), built on the checks in <code>sql/checks/</code>; cite the table and row, not this page.</p>
+    <p>Weights are net tonnes as reported. Values in USD: exports FOB, partners' imports CIF. 2846.90 includes rare earth carbonate along with every other rare earth compound except cerium.</p>`;
+}
+
+function renderScoped() {
+  renderHeadline(); renderTrend(); renderDestinations(); renderMirror(); renderFlags(); renderChanges();
+}
+function renderAll() {
+  renderMeta(); renderFilters(); renderStatus(); renderScoped(); renderCoverage(); renderFooter();
+}
+
+document.getElementById("cells").addEventListener("click", e => {
+  const b = e.target.closest("[data-hs6]");
+  if (!b) return;
+  state.hs6 = b.dataset.hs6; state.flagsAll = false; save();
+  document.querySelectorAll("#cells .cell").forEach(c => c.setAttribute("aria-pressed", c.dataset.hs6 === state.hs6));
+  renderScoped();
+});
+document.getElementById("windows").addEventListener("click", e => {
+  const b = e.target.closest("[data-win]");
+  if (!b) return;
+  state.win = b.dataset.win; state.flagsAll = false; save();
+  document.querySelectorAll("#windows button").forEach(c => c.setAttribute("aria-pressed", c.dataset.win === state.win));
+  renderScoped();
+});
+
+if (!exportsMonthly.length) {
+  document.getElementById("no-data").hidden = false;
+}
+renderAll();
+let lastW = document.getElementById("main").clientWidth, pending = 0;
+window.addEventListener("resize", () => {
+  cancelAnimationFrame(pending);
+  pending = requestAnimationFrame(() => {
+    const w = document.getElementById("main").clientWidth;
+    if (w !== lastW) { lastW = w; renderTrend(); renderMirror(); }
+  });
+});
+</script>
