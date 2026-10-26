@@ -1,0 +1,29 @@
+metric,source_table,detail,value
+backtest_verdict,backtest_2023_carbonate,comtrade_hs6_284690_proxy,PASS
+latest_month,comtrade,156 M,2024-12
+latest_month,comtrade,344 M,2023-06
+latest_month,comtrade,392 M,2026-05
+latest_month,comtrade,410 M,2025-12
+latest_month,comtrade,458 X,2026-08
+latest_month,comtrade,702 M,2026-03
+latest_month,comtrade,704 M,2023-12
+latest_month,comtrade,764 M,2026-05
+latest_month,comtrade,842 M,2026-07
+mirror_gap_status,mirror_gap,comtrade both,507
+mirror_gap_status,mirror_gap,comtrade both_zero,10
+mirror_gap_status,mirror_gap,comtrade not_comparable,110
+mirror_gap_status,mirror_gap,comtrade only_malaysia,309
+mirror_gap_status,mirror_gap,comtrade only_mirror,273
+mom_jump_flag,mom_jumps,appeared,530
+mom_jump_flag,mom_jumps,down,244
+mom_jump_flag,mom_jumps,up,257
+mom_jump_flag,mom_jumps,vanished,587
+rows,availability,,1595
+rows,comtrade,,3035
+rows,gacc,,0
+snapshot,snapshot_meta,has_snapshot,true
+unit_value_flag,unit_value,high,73
+unit_value_flag,unit_value,low,145
+unit_value_flag,unit_value,no_weight,44
+unit_value_flag,unit_value,ok,2648
+unit_value_flag,unit_value,small_shipment,125

@@ -13,6 +13,8 @@ partners say they imported, using UN Comtrade and China's GACC (customs) data.
   Hong Kong 344, Japan 392, South Korea 410, Thailand 764, Vietnam 704,
   Singapore 702, US 842.
 - GACC: any CSV dropped into `data/inbox/china/` (China's 8-digit lines).
+- Bank Negara Malaysia: daily USD/MYR noon (12:00) middle rates from its open
+  API (`api.bnm.gov.my`, no key), one call per month, to show values in ringgit.
 - Scope is set in `monitor/config.py`. The partner list is also in
   `sql/00_load.sql`, and a test checks that the two match.
 
@@ -21,7 +23,7 @@ partners say they imported, using UN Comtrade and China's GACC (customs) data.
 ```
 pip install -r requirements.txt
 export COMTRADE_KEY=...          # Comtrade subscription key, read from the environment only
-python -m monitor.run            # fetch + ingest + clean + rebuild DB + run every check
+python -m monitor.run            # fetch (Comtrade, BNM) + ingest + clean + rebuild DB + run every check + dashboard
 python -m monitor.run --no-fetch # rerun on the raw files already on disk
 python -m pytest -q tests
 ```
@@ -29,7 +31,8 @@ python -m pytest -q tests
 ## Rules
 
 1. **Raw data is never changed.** Every API response body is saved byte for
-   byte under `data/raw/<fetch-date>/comtrade/`, error responses included.
+   byte under `data/raw/<fetch-date>/comtrade/` (BNM: `.../bnm/`), error
+   responses included.
    Each request goes in the `manifest.jsonl` next to it (URL, params, HTTP
    status, sha256). GACC CSVs are copied byte for byte from the inbox into
    `data/raw/<fetch-date>/gacc/`. Never edit, reformat or delete anything
@@ -38,14 +41,14 @@ python -m pytest -q tests
    environment only. Never write it to a file, a log, the manifest, a commit
    or a message.
 3. **Clean tables are Parquet**, written only by `monitor/clean.py` to
-   `data/clean/`: `comtrade.parquet`, `availability.parquet` and
-   `gacc.parquet`. For each raw file, the copy from the latest fetch date
+   `data/clean/`: `comtrade.parquet`, `availability.parquet`,
+   `gacc.parquet` and `fx.parquet`. For each raw file, the copy from the latest fetch date
    that returned HTTP 200 is used. For Comtrade only total rows are kept
    (partner2 = World, customs = C00, transport mode = all). Duplicates fail
    the run; they are never silently dropped.
 4. **Every check is a `.sql` file run in DuckDB.** The run order is
    `sql/00_load.sql`, then `sql/checks/*.sql` by file name, then
-   `sql/90_summary.sql`. `sql/checks/NN_<name>.sql` must create table
+   `sql/80_dashboard.sql`, then `sql/90_summary.sql`. `sql/checks/NN_<name>.sql` must create table
    `<name>`, which is exported to `reports/<name>.csv`. Don't compute check
    results in Python or pandas.
 5. **The `.duckdb` file is rebuilt from scratch on every run** at
@@ -76,6 +79,22 @@ python -m pytest -q tests
 | `sql/checks/40_snapshot_diff.sql` | `snapshot_diff` | Rows added, removed or revised compared with the last committed `data/clean/`. |
 | `sql/checks/50_backtest_2023_carbonate.sql` | `backtest_2023_carbonate` | The backtest below. |
 | `sql/90_summary.sql` | `run_summary` | Counts and the verdict that `monitor.run` prints. |
+
+### Dashboard
+
+Every run writes `reports/dashboard.html`, one self-contained page (open it in a
+browser; no server). Pick an HS code, a window (since Jan 2019, 36 or 12
+months) and a currency (RM or US$) to see Malaysia's monthly exports to the world, top destinations, the
+mirror check per partner, flags, revisions since the last commit and coverage.
+
+- Its figures are the `dash_*` tables from `sql/80_dashboard.sql`, embedded
+  as JSON by `monitor/dashboard.py`. The page only filters and draws them.
+  To show a new figure, add it to `sql/80_dashboard.sql`, not to the page
+  or to Python.
+- For a memo, cite the table, not the page: "(`sql/80_dashboard.sql`,
+  `dash_kpis`, hs6 284690, `t_12m`)".
+- The layout and charts are in `monitor/dashboard_template.html`.
+- It is committed with `reports/` after review, like the CSVs.
 
 ### Backtest
 
@@ -109,6 +128,12 @@ China(m or m+1) > 0.
   Malaysia records exports by destination. Hong Kong and Singapore
   re-exports make those two gaps structural. Imports are valued CIF and
   exports FOB, so unit values for the two sides differ by freight.
+- **Ringgit.** Comtrade values are in US$. The `rm` columns in
+  `sql/80_dashboard.sql` convert each month at Bank Negara's average noon
+  middle rate for that month (`fx_monthly` in `sql/00_load.sql`). A ringgit
+  total is NULL, never understated, if any month in it lacks a rate. Mirror
+  ratios and the flags stay in US$. Converted figures can differ slightly
+  from DOSM's own ringgit figures, so check a headline number against DOSM.
 - **GACC CSVs.** Chinese or English GACC headers are accepted, encoded in
   UTF-8 or GB18030. If the file has no flow column, its name must say
   `import`/`进口` or `export`/`出口`, otherwise the run fails. Weights are
