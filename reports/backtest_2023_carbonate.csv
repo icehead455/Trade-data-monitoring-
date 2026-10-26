@@ -1,0 +1,5 @@
+month,malaysia_export_kg,china_import_kg_same_month,china_import_kg_next_month,gacc_carbonate_kg_same_month,gacc_carbonate_kg_next_month,comtrade_china_284690_kg_same_month,comtrade_china_284690_kg_next_month,matched,verdict,china_basis,months_matched
+2023-02,761831.0,1081705.0,925648.176,,,1081705.0,925648.176,true,,comtrade_hs6_284690_proxy,
+2023-03,1970630.0,925648.176,1844020.0,,,925648.176,1844020.0,true,,comtrade_hs6_284690_proxy,
+2023-04,775783.0,1844020.0,1503686.0,,,1844020.0,1503686.0,true,,comtrade_hs6_284690_proxy,
+window,3508244.0,,,,,5355059.176,,,PASS,comtrade_hs6_284690_proxy,3
