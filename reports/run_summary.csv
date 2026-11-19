@@ -22,8 +22,6 @@ rows,availability,,1598
 rows,comtrade,,3061
 rows,gacc,,0
 snapshot,snapshot_meta,has_snapshot,true
-snapshot_diff,snapshot_diff,comtrade added,26
-snapshot_diff,snapshot_diff,comtrade changed,105
 unit_value_flag,unit_value,high,76
 unit_value_flag,unit_value,low,146
 unit_value_flag,unit_value,no_weight,46

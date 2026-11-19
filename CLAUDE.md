@@ -78,6 +78,7 @@ python -m pytest -q tests
 | `sql/checks/30_mom_jumps.sql` | `mom_jumps` | Month-on-month tonnage moves of ≥3×, and series appearing from or dropping to zero (≥1 t). |
 | `sql/checks/40_snapshot_diff.sql` | `snapshot_diff` | Rows added, removed or revised compared with the last committed `data/clean/`. |
 | `sql/checks/50_backtest_2023_carbonate.sql` | `backtest_2023_carbonate` | The backtest below. |
+| `sql/checks/60_mirror_yearly.sql` | `mirror_yearly` | The mirror gap summed by partner, HS6 and calendar year over the months both sides have released, with Malaysia's exports of that HS6 to the World in the same months. |
 | `sql/90_summary.sql` | `run_summary` | Counts and the verdict that `monitor.run` prints. |
 
 ### Dashboard
