@@ -28,6 +28,13 @@ COMTRADE_KEY_ENV = "COMTRADE_KEY"
 # The API accepts at most 12 periods per call; we fetch one calendar year per call.
 COMTRADE_SLEEP_S = 1.5
 
+# Bank Negara Malaysia's USD/MYR rates, one call per month. Session 1200 carries the
+# noon middle rate; the API answers 404 for a month with no rates yet.
+BNM_URL = "https://api.bnm.gov.my/public/exchange-rate/USD/year/{year}/month/{month}"
+BNM_PARAMS = {"session": "1200", "quote": "rm"}
+BNM_ACCEPT = "application/vnd.BNM.API.v1+json"
+BNM_SLEEP_S = 0.5
+
 RAW_DIR = "data/raw"
 INBOX_CHINA = "data/inbox/china"
 CLEAN_DIR = "data/clean"

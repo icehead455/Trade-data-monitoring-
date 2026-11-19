@@ -5,6 +5,7 @@ comtrade.parquet  one row per reporter, flow, partner, hs6, month (totals only:
 availability.parquet  one row per reporter and month Comtrade says it has released
 gacc.parquet      one row per flow, hs8, partner, month (summed over any trade
                   mode / province breakdown present in the export)
+fx.parquet        one row per day: Bank Negara's USD/MYR rates for the session fetched
 """
 import json
 import re
@@ -37,10 +38,10 @@ def _empty(cols):
 
 # ---------------------------------------------------------------- Comtrade
 
-def _latest_good_comtrade_files(root: Path) -> dict[str, Path]:
+def _latest_good_files(root: Path, source: str = "comtrade") -> dict[str, Path]:
     """For each raw file name, the copy from the latest fetch date that returned HTTP 200."""
     best = {}
-    for manifest in sorted((root / config.RAW_DIR).glob("*/comtrade/manifest.jsonl")):
+    for manifest in sorted((root / config.RAW_DIR).glob(f"*/{source}/manifest.jsonl")):
         for line in manifest.read_text().splitlines():
             rec = json.loads(line)
             if rec["status"] == 200 and not rec.get("api_error"):
@@ -63,7 +64,7 @@ def _month(p) -> pd.Timestamp:
 
 def clean_availability(root: Path) -> pd.DataFrame:
     rows = []
-    for name, path in sorted(_latest_good_comtrade_files(root).items()):
+    for name, path in sorted(_latest_good_files(root).items()):
         if not name.startswith("availability_"):
             continue
         for r in json.loads(path.read_bytes()).get("data") or []:
@@ -80,7 +81,7 @@ def clean_availability(root: Path) -> pd.DataFrame:
 
 def clean_comtrade(root: Path) -> pd.DataFrame:
     rows = []
-    for name, path in sorted(_latest_good_comtrade_files(root).items()):
+    for name, path in sorted(_latest_good_files(root).items()):
         if not name.startswith("comtrade_"):
             continue
         for r in json.loads(path.read_bytes()).get("data") or []:
@@ -115,6 +116,29 @@ def clean_comtrade(root: Path) -> pd.DataFrame:
     if len(dup):
         raise ValueError(f"Comtrade rows not unique on {key} after total filters:\n{dup.head(20)}")
     return df.sort_values(key).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------- BNM exchange rates
+
+FX_COLUMNS = {"date": "datetime64[ms]", "buying_rate": "float64", "selling_rate": "float64",
+              "middle_rate": "float64", "session": "string", "raw_file": "string"}
+
+
+def clean_fx(root: Path) -> pd.DataFrame:
+    rows = []
+    for name, path in sorted(_latest_good_files(root, "bnm").items()):
+        body = json.loads(path.read_bytes())
+        session = (body.get("meta") or {}).get("session")
+        for r in (body.get("data") or {}).get("rate") or []:
+            rows.append({"date": pd.Timestamp(r["date"]), "buying_rate": r.get("buying_rate"),
+                         "selling_rate": r.get("selling_rate"), "middle_rate": r.get("middle_rate"),
+                         "session": session, "raw_file": str(path.relative_to(root))})
+    df = pd.DataFrame(rows) if rows else _empty(FX_COLUMNS)
+    df = df.astype(FX_COLUMNS)
+    dup = df[df.duplicated(["date"], keep=False)]
+    if len(dup):
+        raise ValueError(f"BNM rates not unique on date:\n{dup.head(20)}")
+    return df.sort_values("date").reset_index(drop=True)
 
 
 # ---------------------------------------------------------------- GACC
@@ -250,7 +274,8 @@ def clean(root: Path) -> dict[str, int]:
     counts = {}
     for name, df in [("comtrade", clean_comtrade(root)),
                      ("availability", clean_availability(root)),
-                     ("gacc", clean_gacc(root))]:
+                     ("gacc", clean_gacc(root)),
+                     ("fx", clean_fx(root))]:
         df.to_parquet(out / f"{name}.parquet", index=False)
         counts[name] = len(df)
         print(f"clean: {name}.parquet {len(df)} rows", file=sys.stderr)
